@@ -16,4 +16,4 @@ build:ppc --linkopt=-fuse-ld=lld --@envoy//source/extensions/filters/common/lua:
 build:aarch64 --linkopt=-fuse-ld=lld
 
 # Import vendor flags
-# import %workspace%/maistra/bazelrc-vendor
+#import %workspace%/maistra/bazelrc-vendor

@@ -37,8 +37,7 @@ fi
 function bazel_build() {
   bazel build \
     ${COMMON_FLAGS} \
-    "${@}" \
-  2>&1 | grep -v -E "${OUTPUT_TO_IGNORE}"
+    "${@}"
 }
 
 function bazel_test() {
