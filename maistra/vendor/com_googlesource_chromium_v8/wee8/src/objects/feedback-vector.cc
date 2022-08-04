@@ -1,5 +1,3 @@
-// Copyright 2014 the V8 project authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "src/objects/feedback-vector.h"
@@ -1434,7 +1432,7 @@ void FeedbackNexus::ResetTypeProfile() {
 FeedbackIterator::FeedbackIterator(const FeedbackNexus* nexus)
     : done_(false), index_(-1), state_(kOther) {
   DCHECK(IsLoadICKind(nexus->kind()) ||
-         IsStoreICKind(nexus->kind()) | IsKeyedLoadICKind(nexus->kind()) ||
+         IsStoreICKind(nexus->kind()) || IsKeyedLoadICKind(nexus->kind()) ||
          IsKeyedStoreICKind(nexus->kind()) || IsStoreOwnICKind(nexus->kind()) ||
          IsStoreDataPropertyInLiteralKind(nexus->kind()) ||
          IsStoreInArrayLiteralICKind(nexus->kind()) ||
