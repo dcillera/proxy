@@ -24,11 +24,10 @@ github.com/envoyproxy/go-control-plane/envoy/config/overload/v3
 github.com/envoyproxy/go-control-plane/envoy/config/route/v3
 github.com/envoyproxy/go-control-plane/envoy/config/trace/v3
 github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/grpc_stats/v3
-github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/wasm/v3
 github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3
+github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/wasm/v3
 github.com/envoyproxy/go-control-plane/envoy/extensions/filters/listener/http_inspector/v3
 github.com/envoyproxy/go-control-plane/envoy/extensions/filters/listener/tls_inspector/v3
-github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/grpc_stats/v3
 github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3
 github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3
 github.com/envoyproxy/go-control-plane/envoy/extensions/wasm/v3
@@ -61,6 +60,8 @@ github.com/envoyproxy/protoc-gen-validate/validate
 # github.com/fsnotify/fsnotify v1.4.9
 ## explicit
 github.com/fsnotify/fsnotify
+# github.com/ghodss/yaml v1.0.0
+## explicit
 github.com/ghodss/yaml
 # github.com/golang/protobuf v1.4.3
 ## explicit
@@ -221,6 +222,6 @@ google.golang.org/protobuf/types/known/wrapperspb
 ## explicit
 # gopkg.in/yaml.v2 v2.4.0
 ## explicit
+gopkg.in/yaml.v2
 # sigs.k8s.io/yaml v1.3.0
 ## explicit
-
