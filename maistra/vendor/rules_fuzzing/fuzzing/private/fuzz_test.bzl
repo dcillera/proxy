@@ -12,11 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The implementation of the cc_fuzz_test rule."""
+"""The implementation of the {cc, java}_fuzz_test rules."""
 
 load("@rules_cc//cc:defs.bzl", "cc_binary")
+
+# FIXME: Including this leads to a Stardoc error since defs.bzl is not visible. As a workaround, use native.java_binary.
+#load("@rules_java//java:defs.bzl", "java_binary")
 load("//fuzzing/private:common.bzl", "fuzzing_corpus", "fuzzing_dictionary", "fuzzing_launcher")
 load("//fuzzing/private:binary.bzl", "fuzzing_binary", "fuzzing_binary_uninstrumented")
+load("//fuzzing/private:java_utils.bzl", "determine_primary_class", "jazzer_fuzz_binary")
 load("//fuzzing/private:regression.bzl", "fuzzing_regression_test")
 load("//fuzzing/private/oss_fuzz:package.bzl", "oss_fuzz_package")
 
@@ -136,7 +140,7 @@ def cc_fuzz_test(
         engine = "@rules_fuzzing//fuzzing:cc_engine",
         tags = None,
         **binary_kwargs):
-    """Defines a fuzz test and a few associated tools and metadata.
+    """Defines a C++ fuzz test and a few associated tools and metadata.
 
     For each fuzz test `<name>`, this macro defines a number of targets. The
     most relevant ones are:
@@ -169,7 +173,16 @@ def cc_fuzz_test(
     # this target directly. Instead, the binary should be built through the
     # instrumented configuration.
     raw_binary_name = name + "_raw_"
-    binary_kwargs.setdefault("deps", []).append(engine)
+    binary_kwargs.setdefault("deps", [])
+
+    # Use += rather than append to allow users to pass in select() expressions for
+    # deps, which only support concatenation with +.
+    # Workaround for https://github.com/bazelbuild/bazel/issues/14157.
+    # buildifier: disable=list-append
+    binary_kwargs["deps"] += [engine]
+
+    # tags is not configurable and can thus use append.
+    binary_kwargs.setdefault("tags", []).append("manual")
     cc_binary(
         name = raw_binary_name,
         **binary_kwargs
@@ -178,6 +191,128 @@ def cc_fuzz_test(
     fuzzing_decoration(
         name = name,
         raw_binary = raw_binary_name,
+        engine = engine,
+        corpus = corpus,
+        dicts = dicts,
+        test_tags = (tags or []) + [
+            "fuzz-test",
+        ],
+    )
+
+def java_fuzz_test(
+        name,
+        srcs = None,
+        target_class = None,
+        corpus = None,
+        dicts = None,
+        engine = "@rules_fuzzing//fuzzing:java_engine",
+        tags = None,
+        **binary_kwargs):
+    """Defines a Java fuzz test and a few associated tools and metadata.
+
+    For each fuzz test `<name>`, this macro defines a number of targets. The
+    most relevant ones are:
+
+    * `<name>`: A test that executes the fuzzer binary against the seed corpus
+      (or on an empty input if no corpus is specified).
+    * `<name>_bin`: The instrumented fuzz test executable. Use this target
+      for debugging or for accessing the complete command line interface of the
+      fuzzing engine. Most developers should only need to use this target
+      rarely.
+    * `<name>_run`: An executable target used to launch the fuzz test using a
+      simpler, engine-agnostic command line interface.
+    * `<name>_oss_fuzz`: Generates a `<name>_oss_fuzz.tar` archive containing
+      the fuzz target executable and its associated resources (corpus,
+      dictionary, etc.) in a format suitable for unpacking in the $OUT/
+      directory of an OSS-Fuzz build. This target can be used inside the
+      `build.sh` script of an OSS-Fuzz project.
+
+    Args:
+        name: A unique name for this target. Required.
+        srcs: A list of source files of the target.
+        target_class: The class that contains the static fuzzerTestOneInput
+          method. Defaults to the same class main_class would.
+        corpus: A list containing corpus files.
+        dicts: A list containing dictionaries.
+        engine: A label pointing to the fuzzing engine to use.
+        tags: Tags set on the fuzzing regression test.
+        **binary_kwargs: Keyword arguments directly forwarded to the fuzz test
+          binary rule.
+    """
+
+    # Append the '_' suffix to the raw target to dissuade users from referencing
+    # this target directly. Instead, the binary should be built through the
+    # instrumented configuration.
+    raw_target_name = name + "_target_"
+
+    # Determine a value for target_class heuristically using the same rules as
+    # those used by Bazel internally for main_class.
+    # FIXME: This operates on the raw unresolved srcs list entries and thus
+    #  cannot handle labels.
+    if not target_class:
+        target_class = determine_primary_class(srcs, name)
+    if not target_class:
+        fail(("Unable to determine fuzz target class for java_fuzz_test {name}" +
+              ", specify target_class.").format(
+            name = name,
+        ))
+    target_class_manifest_line = "Jazzer-Fuzz-Target-Class: %s" % target_class
+    binary_kwargs.setdefault("deps", [])
+
+    # Use += rather than append to allow users to pass in select() expressions for
+    # deps, which only support concatenation with +.
+    # Workaround for https://github.com/bazelbuild/bazel/issues/14157.
+    # buildifier: disable=list-append
+    binary_kwargs["deps"] += [engine]
+    binary_kwargs.setdefault("deploy_manifest_lines", [])
+
+    # buildifier: disable=list-append
+    binary_kwargs["deploy_manifest_lines"] += [target_class_manifest_line]
+
+    # tags is not configurable and can thus use append.
+    binary_kwargs.setdefault("tags", []).append("manual")
+    native.java_binary(
+        name = raw_target_name,
+        srcs = srcs,
+        create_executable = False,
+        **binary_kwargs
+    )
+
+    raw_binary_name = name + "_raw_"
+    jazzer_fuzz_binary(
+        name = raw_binary_name,
+        agent = select({
+            "@rules_fuzzing//fuzzing/private:use_oss_fuzz": "@rules_fuzzing_oss_fuzz//:jazzer_agent_deploy.jar",
+            "//conditions:default": "@jazzer//agent:jazzer_agent_deploy.jar",
+        }),
+        # Since the choice of sanitizer is explicit for local fuzzing, we also
+        # let it apply to projects with no native dependencies.
+        driver_java_only = select({
+            "@rules_fuzzing//fuzzing/private:use_oss_fuzz": "@rules_fuzzing_oss_fuzz//:jazzer_driver",
+            "@rules_fuzzing//fuzzing/private:use_sanitizer_none": "@jazzer//driver:jazzer_driver",
+            "@rules_fuzzing//fuzzing/private:use_sanitizer_asan": "@jazzer//driver:jazzer_driver_asan",
+            "@rules_fuzzing//fuzzing/private:use_sanitizer_ubsan": "@jazzer//driver:jazzer_driver_ubsan",
+        }, no_match_error = "Jazzer only supports the sanitizer settings: \"none\", \"asan\", \"ubsan\""),
+        driver_with_native = select({
+            "@rules_fuzzing//fuzzing/private:use_oss_fuzz": "@rules_fuzzing_oss_fuzz//:jazzer_driver_with_sanitizer",
+            "@rules_fuzzing//fuzzing/private:use_sanitizer_none": "@jazzer//driver:jazzer_driver",
+            "@rules_fuzzing//fuzzing/private:use_sanitizer_asan": "@jazzer//driver:jazzer_driver_asan",
+            "@rules_fuzzing//fuzzing/private:use_sanitizer_ubsan": "@jazzer//driver:jazzer_driver_ubsan",
+        }, no_match_error = "Jazzer only supports the sanitizer settings: \"none\", \"asan\", \"ubsan\""),
+        sanitizer_options = select({
+            "@rules_fuzzing//fuzzing/private:use_oss_fuzz": "@rules_fuzzing//fuzzing/private:oss_fuzz_jazzer_sanitizer_options.sh",
+            "//conditions:default": "@rules_fuzzing//fuzzing/private:local_jazzer_sanitizer_options.sh",
+        }),
+        tags = ["manual"],
+        target = raw_target_name,
+        target_deploy_jar = raw_target_name + "_deploy.jar",
+    )
+
+    fuzzing_decoration(
+        name = name,
+        raw_binary = raw_binary_name,
+        # jazzer_fuzz_binary already instrumented the native dependencies.
+        instrument_binary = False,
         engine = engine,
         corpus = corpus,
         dicts = dicts,

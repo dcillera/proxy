@@ -8,6 +8,7 @@ package main
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
@@ -33,15 +34,14 @@ var (
 	regenerate   = flag.Bool("regenerate", false, "regenerate files")
 	buildRelease = flag.Bool("buildRelease", false, "build release binaries")
 
-	protobufVersion = "ef7cc811" // v3.12.0-rc1
-	protobufSHA256  = ""         // ignored if protobufVersion is a git hash
+	protobufVersion = "3.15.3"
+	protobufSHA256  = "" // ignored if protobufVersion is a git hash
 
-	golangVersions = []string{"1.9.7", "1.10.8", "1.11.13", "1.12.17", "1.13.12", "1.14.4"}
+	golangVersions = []string{"1.9.7", "1.10.8", "1.11.13", "1.12.17", "1.13.15", "1.14.15", "1.15.9", "1.16.1"}
 	golangLatest   = golangVersions[len(golangVersions)-1]
 
 	staticcheckVersion = "2020.1.4"
 	staticcheckSHA256s = map[string]string{
-		"darwin/386":   "05ccb332a0c5ba812af165b0e69ffe317cb3e8bb10b0f4b4c4eaaf956ba9a50b",
 		"darwin/amd64": "5706d101426c025e8f165309e0cb2932e54809eb035ff23ebe19df0f810699d8",
 		"linux/386":    "e4dbf94e940678ae7108f0d22c7c2992339bc10a8fb384e7e734b1531a429a1c",
 		"linux/amd64":  "09d2c2002236296de2c757df111fe3ae858b89f9e183f645ad01f8135c83c519",
@@ -101,7 +101,7 @@ func Test(t *testing.T) {
 	for i := range golangVersions {
 		goVersion := golangVersions[i]
 		goLabel := "Go" + goVersion
-		runGo := func(label, workDir string, args ...string) {
+		runGo := func(label string, cmd command, args ...string) {
 			wg.Add(1)
 			sema <- true
 			go func() {
@@ -109,19 +109,25 @@ func Test(t *testing.T) {
 				defer func() { <-sema }()
 				t.Run(goLabel+"/"+label, func(t *testing.T) {
 					args[0] += goVersion
-					command{Dir: workDir}.mustRun(t, args...)
+					cmd.mustRun(t, args...)
 				})
 			}()
 		}
 
 		workDir := filepath.Join(goPath, "src", modulePath)
-		runGo("Normal", workDir, "go", "test", "-race", "./...")
-		runGo("PureGo", workDir, "go", "test", "-race", "-tags", "purego", "./...")
-		runGo("Reflect", workDir, "go", "test", "-race", "-tags", "protoreflect", "./...")
+		runGo("Normal", command{Dir: workDir}, "go", "test", "-race", "./...")
+		runGo("PureGo", command{Dir: workDir}, "go", "test", "-race", "-tags", "purego", "./...")
+		runGo("Reflect", command{Dir: workDir}, "go", "test", "-race", "-tags", "protoreflect", "./...")
 		if goVersion == golangLatest {
-			runGo("ProtoLegacy", workDir, "go", "test", "-race", "-tags", "protolegacy", "./...")
-			runGo("ProtocGenGo", "cmd/protoc-gen-go/testdata", "go", "test")
-			runGo("Conformance", "internal/conformance", "go", "test", "-execute")
+			runGo("ProtoLegacy", command{Dir: workDir}, "go", "test", "-race", "-tags", "protolegacy", "./...")
+			runGo("ProtocGenGo", command{Dir: "cmd/protoc-gen-go/testdata"}, "go", "test")
+			runGo("Conformance", command{Dir: "internal/conformance"}, "go", "test", "-execute")
+
+			// Only run the 32-bit compatability tests for Linux;
+			// avoid Darwin since 10.15 dropped support i386 code execution.
+			if runtime.GOOS == "linux" {
+				runGo("Arch32Bit", command{Dir: workDir, Env: append(os.Environ(), "GOARCH=386")}, "go", "test", "./...")
+			}
 		}
 	}
 	wg.Wait()
@@ -175,72 +181,57 @@ func mustInitDeps(t *testing.T) {
 	testDir := filepath.Join(repoRoot, ".cache")
 	check(os.MkdirAll(testDir, 0775))
 
-	// Travis-CI has a hard-coded timeout where it kills the test after
-	// 10 minutes of a lack of activity on stdout.
-	// We work around this restriction by periodically printing the timestamp.
-	ticker := time.NewTicker(5 * time.Minute)
-	done := make(chan struct{})
-	go func() {
-		now := time.Now()
-		for {
-			select {
-			case t := <-ticker.C:
-				fmt.Printf("\tt=%0.fmin\n", t.Sub(now).Minutes())
-			case <-done:
-				return
-			}
-		}
-	}()
-	defer close(done)
-	defer ticker.Stop()
-
 	// Delete the current directory if non-empty,
 	// which only occurs if a dependency failed to initialize properly.
 	var workingDir string
+	finishedDirs := map[string]bool{}
 	defer func() {
 		if workingDir != "" {
 			os.RemoveAll(workingDir) // best-effort
 		}
 	}()
+	startWork := func(name string) string {
+		workingDir = filepath.Join(testDir, name)
+		return workingDir
+	}
+	finishWork := func() {
+		finishedDirs[workingDir] = true
+		workingDir = ""
+	}
 
 	// Delete other sub-directories that are no longer relevant.
 	defer func() {
-		subDirs := map[string]bool{"bin": true, "gopath": true}
-		subDirs["protobuf-"+protobufVersion] = true
-		for _, v := range golangVersions {
-			subDirs["go"+v] = true
-		}
-
 		now := time.Now()
 		fis, _ := ioutil.ReadDir(testDir)
 		for _, fi := range fis {
-			if subDirs[fi.Name()] {
-				os.Chtimes(filepath.Join(testDir, fi.Name()), now, now) // best-effort
+			dir := filepath.Join(testDir, fi.Name())
+			if finishedDirs[dir] {
+				os.Chtimes(dir, now, now) // best-effort
 				continue
 			}
 			if now.Sub(fi.ModTime()) < purgeTimeout {
 				continue
 			}
 			fmt.Printf("delete %v\n", fi.Name())
-			os.RemoveAll(filepath.Join(testDir, fi.Name())) // best-effort
+			os.RemoveAll(dir) // best-effort
 		}
 	}()
 
 	// The bin directory contains symlinks to each tool by version.
 	// It is safe to delete this directory and run the test script from scratch.
-	binPath := filepath.Join(testDir, "bin")
+	binPath := startWork("bin")
 	check(os.RemoveAll(binPath))
 	check(os.Mkdir(binPath, 0775))
 	check(os.Setenv("PATH", binPath+":"+os.Getenv("PATH")))
 	registerBinary := func(name, path string) {
 		check(os.Symlink(path, filepath.Join(binPath, name)))
 	}
+	finishWork()
 
 	// Download and build the protobuf toolchain.
 	// We avoid downloading the pre-compiled binaries since they do not contain
 	// the conformance test runner.
-	workingDir = filepath.Join(testDir, "protobuf-"+protobufVersion)
-	protobufPath = workingDir
+	protobufPath = startWork("protobuf-" + protobufVersion)
 	if _, err := os.Stat(protobufPath); err != nil {
 		fmt.Printf("download %v\n", filepath.Base(protobufPath))
 		if isCommit := strings.Trim(protobufVersion, "0123456789abcdef") == ""; isCommit {
@@ -260,33 +251,33 @@ func mustInitDeps(t *testing.T) {
 	check(os.Setenv("PROTOBUF_ROOT", protobufPath)) // for generate-protos
 	registerBinary("conform-test-runner", filepath.Join(protobufPath, "conformance", "conformance-test-runner"))
 	registerBinary("protoc", filepath.Join(protobufPath, "src", "protoc"))
-	workingDir = ""
+	finishWork()
 
 	// Download each Go toolchain version.
 	for _, v := range golangVersions {
-		workingDir = filepath.Join(testDir, "go"+v)
-		if _, err := os.Stat(workingDir); err != nil {
-			fmt.Printf("download %v\n", filepath.Base(workingDir))
+		goDir := startWork("go" + v)
+		if _, err := os.Stat(goDir); err != nil {
+			fmt.Printf("download %v\n", filepath.Base(goDir))
 			url := fmt.Sprintf("https://dl.google.com/go/go%v.%v-%v.tar.gz", v, runtime.GOOS, runtime.GOARCH)
-			downloadArchive(check, workingDir, url, "go", "") // skip SHA256 check as we fetch over https from a trusted domain
+			downloadArchive(check, goDir, url, "go", "") // skip SHA256 check as we fetch over https from a trusted domain
 		}
-		registerBinary("go"+v, filepath.Join(workingDir, "bin", "go"))
+		registerBinary("go"+v, filepath.Join(goDir, "bin", "go"))
+		finishWork()
 	}
 	registerBinary("go", filepath.Join(testDir, "go"+golangLatest, "bin", "go"))
 	registerBinary("gofmt", filepath.Join(testDir, "go"+golangLatest, "bin", "gofmt"))
-	workingDir = ""
 
 	// Download the staticcheck tool.
-	workingDir = filepath.Join(testDir, "staticcheck-"+staticcheckVersion)
-	if _, err := os.Stat(workingDir); err != nil {
-		fmt.Printf("download %v\n", filepath.Base(workingDir))
+	checkDir := startWork("staticcheck-" + staticcheckVersion)
+	if _, err := os.Stat(checkDir); err != nil {
+		fmt.Printf("download %v\n", filepath.Base(checkDir))
 		url := fmt.Sprintf("https://github.com/dominikh/go-tools/releases/download/%v/staticcheck_%v_%v.tar.gz", staticcheckVersion, runtime.GOOS, runtime.GOARCH)
-		downloadArchive(check, workingDir, url, "staticcheck", staticcheckSHA256s[runtime.GOOS+"/"+runtime.GOARCH])
+		downloadArchive(check, checkDir, url, "staticcheck", staticcheckSHA256s[runtime.GOOS+"/"+runtime.GOARCH])
 	}
-	registerBinary("staticcheck", filepath.Join(workingDir, "staticcheck"))
-	workingDir = ""
+	registerBinary("staticcheck", filepath.Join(checkDir, "staticcheck"))
+	finishWork()
 
-	// Travis-CI sets GOROOT, which confuses invocations of the Go toolchain.
+	// GitHub actions sets GOROOT, which confuses invocations of the Go toolchain.
 	// Explicitly clear GOROOT, so each toolchain uses their default GOROOT.
 	check(os.Unsetenv("GOROOT"))
 
@@ -294,7 +285,7 @@ func mustInitDeps(t *testing.T) {
 	check(os.Setenv("GOCACHE", filepath.Join(repoRoot, ".gocache")))
 
 	// Setup GOPATH for pre-module support (i.e., go1.10 and earlier).
-	goPath = filepath.Join(testDir, "gopath")
+	goPath = startWork("gopath")
 	modulePath = strings.TrimSpace(command{Dir: testDir}.mustRun(t, "go", "list", "-m", "-f", "{{.Path}}"))
 	check(os.RemoveAll(filepath.Join(goPath, "src")))
 	check(os.MkdirAll(filepath.Join(goPath, "src", filepath.Dir(modulePath)), 0775))
@@ -302,6 +293,7 @@ func mustInitDeps(t *testing.T) {
 	command{Dir: repoRoot}.mustRun(t, "go", "mod", "tidy")
 	command{Dir: repoRoot}.mustRun(t, "go", "mod", "vendor")
 	check(os.Setenv("GOPATH", goPath))
+	finishWork()
 }
 
 func downloadFile(check func(error), dstPath, srcURL string) {
@@ -384,6 +376,11 @@ func mustHandleFlags(t *testing.T) {
 			v := version.String()
 			for _, goos := range []string{"linux", "darwin", "windows"} {
 				for _, goarch := range []string{"386", "amd64"} {
+					// Avoid Darwin since 10.15 dropped support for i386.
+					if goos == "darwin" && goarch == "386" {
+						continue
+					}
+
 					binPath := filepath.Join("bin", fmt.Sprintf("protoc-gen-go.%v.%v.%v", v, goos, goarch))
 
 					// Build the binary.
@@ -396,18 +393,31 @@ func mustHandleFlags(t *testing.T) {
 						t.Fatal(err)
 					}
 					out := new(bytes.Buffer)
-					gz, _ := gzip.NewWriterLevel(out, gzip.BestCompression)
-					gz.Comment = fmt.Sprintf("protoc-gen-go VERSION=%v GOOS=%v GOARCH=%v", v, goos, goarch)
-					tw := tar.NewWriter(gz)
-					tw.WriteHeader(&tar.Header{
-						Name: "protoc-gen-go",
-						Mode: int64(0775),
-						Size: int64(len(in)),
-					})
-					tw.Write(in)
-					tw.Close()
-					gz.Close()
-					if err := ioutil.WriteFile(binPath+".tar.gz", out.Bytes(), 0664); err != nil {
+					suffix := ""
+					comment := fmt.Sprintf("protoc-gen-go VERSION=%v GOOS=%v GOARCH=%v", v, goos, goarch)
+					switch goos {
+					case "windows":
+						suffix = ".zip"
+						zw := zip.NewWriter(out)
+						zw.SetComment(comment)
+						fw, _ := zw.Create("protoc-gen-go.exe")
+						fw.Write(in)
+						zw.Close()
+					default:
+						suffix = ".tar.gz"
+						gz, _ := gzip.NewWriterLevel(out, gzip.BestCompression)
+						gz.Comment = comment
+						tw := tar.NewWriter(gz)
+						tw.WriteHeader(&tar.Header{
+							Name: "protoc-gen-go",
+							Mode: int64(0775),
+							Size: int64(len(in)),
+						})
+						tw.Write(in)
+						tw.Close()
+						gz.Close()
+					}
+					if err := ioutil.WriteFile(binPath+suffix, out.Bytes(), 0664); err != nil {
 						t.Fatal(err)
 					}
 				}

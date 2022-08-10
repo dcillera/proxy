@@ -9,7 +9,6 @@ go_library(
         "//cmd/protoc-gen-go/testdata/extensions/base",
         "//cmd/protoc-gen-go/testdata/extensions/extra",
         "//reflect/protoreflect",
-        "//runtime/protoiface",
         "//runtime/protoimpl",
     ],
 )

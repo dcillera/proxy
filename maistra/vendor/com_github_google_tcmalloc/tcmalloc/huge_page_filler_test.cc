@@ -18,6 +18,7 @@
 #include <string.h>
 #include <sys/mman.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <iterator>
 #include <memory>
@@ -28,7 +29,6 @@
 #include <utility>
 #include <vector>
 
-#include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/algorithm/container.h"
@@ -46,18 +46,21 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "benchmark/benchmark.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
 
-ABSL_FLAG(tcmalloc::Length, page_tracker_defrag_lim, tcmalloc::Length(32),
+using tcmalloc::tcmalloc_internal::Length;
+
+ABSL_FLAG(Length, page_tracker_defrag_lim, Length(32),
           "Max allocation size for defrag test");
 
-ABSL_FLAG(tcmalloc::Length, frag_req_limit, tcmalloc::Length(32),
+ABSL_FLAG(Length, frag_req_limit, Length(32),
           "request size limit for frag test");
-ABSL_FLAG(tcmalloc::Length, frag_size, tcmalloc::Length(512 * 1024),
+ABSL_FLAG(Length, frag_size, Length(512 * 1024),
           "target number of pages for frag test");
 ABSL_FLAG(uint64_t, frag_iters, 10 * 1000 * 1000, "iterations for frag test");
 
@@ -67,6 +70,7 @@ ABSL_FLAG(uint64_t, bytes, 1024 * 1024 * 1024, "baseline usage");
 ABSL_FLAG(double, growth_factor, 2.0, "growth over baseline");
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
 
 // This is an arbitrary distribution taken from page requests from
@@ -713,15 +717,18 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
               freelist_bytes);
   }
   PAlloc AllocateRaw(Length n, bool donated = false) {
+    EXPECT_LT(n, kPagesPerHugePage);
     PAlloc ret;
     ret.n = n;
+    ret.pt = nullptr;
     ret.mark = ++next_mark_;
-    bool success = false;
     if (!donated) {  // Donated means always create a new hugepage
       absl::base_internal::SpinLockHolder l(&pageheap_lock);
-      success = filler_.TryGet(n, &ret.pt, &ret.p);
+      auto [pt, page] = filler_.TryGet(n);
+      ret.pt = pt;
+      ret.p = page;
     }
-    if (!success) {
+    if (ret.pt == nullptr) {
       ret.pt =
           new FakeTracker(GetBacking(), absl::base_internal::CycleClock::Now());
       {
@@ -913,24 +920,28 @@ TEST_P(FillerTest, PrintFreeRatio) {
 
   // Allocate two huge pages, release one, verify that we do not get an invalid
   // (>1.) ratio of free : non-fulls.
-  PAlloc a1 = Allocate(kPagesPerHugePage);
 
+  // First huge page
+  PAlloc a1 = Allocate(kPagesPerHugePage / 2);
+  PAlloc a2 = Allocate(kPagesPerHugePage / 2);
+
+  // Second huge page
   constexpr Length kQ = kPagesPerHugePage / 4;
 
-  PAlloc a2 = Allocate(kQ);
   PAlloc a3 = Allocate(kQ);
   PAlloc a4 = Allocate(kQ);
   PAlloc a5 = Allocate(kQ);
+  PAlloc a6 = Allocate(kQ);
 
-  Delete(a5);
+  Delete(a6);
 
   ReleasePages(kQ);
 
-  Delete(a4);
+  Delete(a5);
 
   std::string buffer(1024 * 1024, '\0');
   {
-    TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
+    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, /*everything=*/true);
     buffer.erase(printer.SpaceRequired());
   }
@@ -963,6 +974,7 @@ HugePageFiller: 0.6667 of used pages hugepageable)"));
   Delete(a1);
   Delete(a2);
   Delete(a3);
+  Delete(a4);
 }
 
 static double BytesToMiB(size_t bytes) { return bytes / (1024.0 * 1024.0); }
@@ -1340,9 +1352,14 @@ TEST_P(FillerTest, SkipSubrelease) {
     PAlloc tiny1 = Allocate(N / 4);
     PAlloc tiny2 = Allocate(N / 4);
 
-    PAlloc peak = Allocate(N);
+    // To force a peak, we allocate 3/4 and 1/4 of a huge page.  This is
+    // necessary after we delete `half` below, as a half huge page for the peak
+    // would fill into the gap previously occupied by it.
+    PAlloc peak1a = Allocate(3 * N / 4);
+    PAlloc peak1b = Allocate(N / 4);
     EXPECT_EQ(filler_.used_pages(), 2 * N);
-    Delete(peak);
+    Delete(peak1a);
+    Delete(peak1b);
     Advance(a);
 
     Delete(half);
@@ -1352,13 +1369,18 @@ TEST_P(FillerTest, SkipSubrelease) {
 
     Advance(b);
 
-    PAlloc peak2 = Allocate(N);
-    PAlloc peak3 = Allocate(N);
+    PAlloc peak2a = Allocate(3 * N / 4);
+    PAlloc peak2b = Allocate(N / 4);
+
+    PAlloc peak3a = Allocate(3 * N / 4);
+    PAlloc peak3b = Allocate(N / 4);
 
     Delete(tiny1);
     Delete(tiny2);
-    Delete(peak2);
-    Delete(peak3);
+    Delete(peak2a);
+    Delete(peak2b);
+    Delete(peak3a);
+    Delete(peak3b);
 
     EXPECT_EQ(filler_.used_pages(), Length(0));
     EXPECT_EQ(filler_.unmapped_pages(), Length(0));
@@ -1408,7 +1430,7 @@ TEST_P(FillerTest, SkipSubrelease) {
 
   std::string buffer(1024 * 1024, '\0');
   {
-    TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
+    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
@@ -1430,7 +1452,7 @@ class FillerStatsTrackerTest : public testing::Test {
  protected:
   static constexpr absl::Duration kWindow = absl::Minutes(10);
 
-  using StatsTrackerType = tcmalloc::FillerStatsTracker<16>;
+  using StatsTrackerType = FillerStatsTracker<16>;
   StatsTrackerType tracker_{
       Clock{.now = FakeClock, .freq = GetFakeClockFrequency}, kWindow,
       absl::Minutes(5)};
@@ -1507,7 +1529,7 @@ TEST_F(FillerStatsTrackerTest, Works) {
   // Test text output (time series summary).
   {
     std::string buffer(1024 * 1024, '\0');
-    TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
+    Printer printer(&*buffer.begin(), buffer.size());
     {
       tracker_.Print(&printer);
       buffer.erase(printer.SpaceRequired());
@@ -1515,6 +1537,7 @@ TEST_F(FillerStatsTrackerTest, Works) {
 
     EXPECT_THAT(buffer, StrEq(R"(HugePageFiller: time series over 5 min interval
 
+HugePageFiller: realized fragmentation: 0.8 MiB
 HugePageFiller: minimum free pages: 110 (100 backed)
 HugePageFiller: at peak demand: 208 pages (and 111 free, 10 unmapped)
 HugePageFiller: at peak demand: 26 hps (14 regular, 10 donated, 1 partial, 1 released)
@@ -1524,156 +1547,6 @@ HugePageFiller: at peak hps: 26 hps (14 regular, 10 donated, 1 partial, 1 releas
 HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to recent (0s) peaks.
 HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending).
 HugePageFiller: Subrelease stats last 10 min: total 0 pages subreleased, 0 hugepages broken
-)"));
-  }
-
-  // Test pbtxt output (full time series).
-  {
-    std::string buffer(1024 * 1024, '\0');
-    TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
-    {
-      PbtxtRegion region(&printer, kTop, /*indent=*/0);
-      tracker_.PrintInPbtxt(&region);
-    }
-    buffer.erase(printer.SpaceRequired());
-
-    EXPECT_THAT(buffer, StrEq(R"(
-  filler_skipped_subrelease {
-    skipped_subrelease_interval_ms: 0
-    skipped_subrelease_pages: 0
-    correctly_skipped_subrelease_pages: 0
-    pending_skipped_subrelease_pages: 0
-    skipped_subrelease_count: 0
-    correctly_skipped_subrelease_count: 0
-    pending_skipped_subrelease_count: 0
-  }
-  filler_stats_timeseries {
-    window_ms: 37500
-    epochs: 16
-    min_free_pages_interval_ms: 300000
-    min_free_pages: 110
-    min_free_backed_pages: 100
-    measurements {
-      epoch: 6
-      timestamp_ms: 0
-      min_free_pages: 11
-      min_free_backed_pages: 1
-      num_pages_subreleased: 0
-      num_hugepages_broken: 0
-      at_minimum_demand {
-        num_pages: 1
-        regular_huge_pages: 5
-        donated_huge_pages: 1
-        partial_released_huge_pages: 1
-        released_huge_pages: 0
-        used_pages_in_subreleased_huge_pages: 1
-      }
-      at_maximum_demand {
-        num_pages: 9
-        regular_huge_pages: 5
-        donated_huge_pages: 1
-        partial_released_huge_pages: 1
-        released_huge_pages: 1
-        used_pages_in_subreleased_huge_pages: 1
-      }
-      at_minimum_huge_pages {
-        num_pages: 5
-        regular_huge_pages: 1
-        donated_huge_pages: 1
-        partial_released_huge_pages: 0
-        released_huge_pages: 0
-        used_pages_in_subreleased_huge_pages: 1
-      }
-      at_maximum_huge_pages {
-        num_pages: 5
-        regular_huge_pages: 9
-        donated_huge_pages: 1
-        partial_released_huge_pages: 0
-        released_huge_pages: 1
-        used_pages_in_subreleased_huge_pages: 1
-      }
-    }
-    measurements {
-      epoch: 14
-      timestamp_ms: 300000
-      min_free_pages: 210
-      min_free_backed_pages: 200
-      num_pages_subreleased: 0
-      num_hugepages_broken: 0
-      at_minimum_demand {
-        num_pages: 100
-        regular_huge_pages: 9
-        donated_huge_pages: 5
-        partial_released_huge_pages: 1
-        released_huge_pages: 0
-        used_pages_in_subreleased_huge_pages: 100
-      }
-      at_maximum_demand {
-        num_pages: 108
-        regular_huge_pages: 9
-        donated_huge_pages: 5
-        partial_released_huge_pages: 1
-        released_huge_pages: 1
-        used_pages_in_subreleased_huge_pages: 100
-      }
-      at_minimum_huge_pages {
-        num_pages: 104
-        regular_huge_pages: 5
-        donated_huge_pages: 5
-        partial_released_huge_pages: 0
-        released_huge_pages: 0
-        used_pages_in_subreleased_huge_pages: 100
-      }
-      at_maximum_huge_pages {
-        num_pages: 104
-        regular_huge_pages: 13
-        donated_huge_pages: 5
-        partial_released_huge_pages: 0
-        released_huge_pages: 1
-        used_pages_in_subreleased_huge_pages: 100
-      }
-    }
-    measurements {
-      epoch: 15
-      timestamp_ms: 337500
-      min_free_pages: 110
-      min_free_backed_pages: 100
-      num_pages_subreleased: 0
-      num_hugepages_broken: 0
-      at_minimum_demand {
-        num_pages: 200
-        regular_huge_pages: 14
-        donated_huge_pages: 10
-        partial_released_huge_pages: 1
-        released_huge_pages: 0
-        used_pages_in_subreleased_huge_pages: 200
-      }
-      at_maximum_demand {
-        num_pages: 208
-        regular_huge_pages: 14
-        donated_huge_pages: 10
-        partial_released_huge_pages: 1
-        released_huge_pages: 1
-        used_pages_in_subreleased_huge_pages: 200
-      }
-      at_minimum_huge_pages {
-        num_pages: 204
-        regular_huge_pages: 10
-        donated_huge_pages: 10
-        partial_released_huge_pages: 0
-        released_huge_pages: 0
-        used_pages_in_subreleased_huge_pages: 200
-      }
-      at_maximum_huge_pages {
-        num_pages: 204
-        regular_huge_pages: 18
-        donated_huge_pages: 10
-        partial_released_huge_pages: 0
-        released_huge_pages: 1
-        used_pages_in_subreleased_huge_pages: 200
-      }
-    }
-  }
 )"));
   }
 }
@@ -1848,7 +1721,7 @@ TEST_P(FillerTest, Print) {
 
   std::string buffer(1024 * 1024, '\0');
   {
-    TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
+    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, /*everything=*/true);
     buffer.erase(printer.SpaceRequired());
   }
@@ -1928,6 +1801,7 @@ HugePageFiller: <225<=     0 <241<=     0 <253<=     0 <254<=     0 <255<=     0
 
 HugePageFiller: time series over 5 min interval
 
+HugePageFiller: realized fragmentation: 0.0 MiB
 HugePageFiller: minimum free pages: 0 (0 backed)
 HugePageFiller: at peak demand: 1774 pages (and 261 free, 13 unmapped)
 HugePageFiller: at peak demand: 8 hps (5 regular, 1 donated, 0 partial, 2 released)
@@ -1937,1552 +1811,6 @@ HugePageFiller: at peak hps: 8 hps (5 regular, 1 donated, 0 partial, 2 released)
 HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to recent (0s) peaks.
 HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending).
 HugePageFiller: Subrelease stats last 10 min: total 269 pages subreleased, 3 hugepages broken
-)"));
-  for (const auto& alloc : allocs) {
-    Delete(alloc);
-  }
-}
-
-// Test the output of PrintInPbtxt(). This is something of a change-detector
-// test, but that's not all bad in this case.
-TEST_P(FillerTest, PrintInPbtxt) {
-  if (kPagesPerHugePage != Length(256)) {
-    // The output is hardcoded on this assumption, and dynamically calculating
-    // it would be way too much of a pain.
-    return;
-  }
-  auto allocs = GenerateInterestingAllocs();
-
-  std::string buffer(1024 * 1024, '\0');
-  TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
-  {
-    PbtxtRegion region(&printer, kTop, /*indent=*/0);
-    filler_.PrintInPbtxt(&region);
-  }
-  buffer.erase(printer.SpaceRequired());
-
-  EXPECT_THAT(buffer, StrEq(R"(
-  filler_full_huge_pages: 3
-  filler_partial_huge_pages: 3
-  filler_released_huge_pages: 2
-  filler_partially_released_huge_pages: 0
-  filler_free_pages: 261
-  filler_used_pages_in_subreleased: 499
-  filler_used_pages_in_partial_released: 0
-  filler_unmapped_bytes: 0
-  filler_hugepageable_used_bytes: 10444800
-  filler_num_pages_subreleased: 269
-  filler_num_hugepages_broken: 3
-  filler_num_pages_subreleased_due_to_limit: 0
-  filler_num_hugepages_broken_due_to_limit: 0
-  filler_tracker {
-    type: REGULAR
-    free_pages_histogram {
-      lower_bound: 0
-      upper_bound: 0
-      value: 3
-    }
-    free_pages_histogram {
-      lower_bound: 1
-      upper_bound: 1
-      value: 1
-    }
-    free_pages_histogram {
-      lower_bound: 2
-      upper_bound: 2
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 3
-      upper_bound: 3
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 4
-      upper_bound: 15
-      value: 1
-    }
-    free_pages_histogram {
-      lower_bound: 16
-      upper_bound: 31
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 32
-      upper_bound: 47
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 48
-      upper_bound: 63
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 64
-      upper_bound: 79
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 80
-      upper_bound: 95
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 96
-      upper_bound: 111
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 112
-      upper_bound: 127
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 128
-      upper_bound: 143
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 144
-      upper_bound: 159
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 160
-      upper_bound: 175
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 176
-      upper_bound: 191
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 192
-      upper_bound: 207
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 208
-      upper_bound: 223
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 224
-      upper_bound: 239
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 240
-      upper_bound: 251
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 252
-      upper_bound: 252
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 253
-      upper_bound: 253
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 254
-      upper_bound: 254
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 255
-      upper_bound: 255
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 0
-      upper_bound: 0
-      value: 3
-    }
-    longest_free_range_histogram {
-      lower_bound: 1
-      upper_bound: 1
-      value: 1
-    }
-    longest_free_range_histogram {
-      lower_bound: 2
-      upper_bound: 2
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 3
-      upper_bound: 3
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 4
-      upper_bound: 15
-      value: 1
-    }
-    longest_free_range_histogram {
-      lower_bound: 16
-      upper_bound: 31
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 32
-      upper_bound: 47
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 48
-      upper_bound: 63
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 64
-      upper_bound: 79
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 80
-      upper_bound: 95
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 96
-      upper_bound: 111
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 112
-      upper_bound: 127
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 128
-      upper_bound: 143
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 144
-      upper_bound: 159
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 160
-      upper_bound: 175
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 176
-      upper_bound: 191
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 192
-      upper_bound: 207
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 208
-      upper_bound: 223
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 224
-      upper_bound: 239
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 240
-      upper_bound: 251
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 252
-      upper_bound: 252
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 253
-      upper_bound: 253
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 254
-      upper_bound: 254
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 255
-      upper_bound: 255
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 1
-      upper_bound: 1
-      value: 1
-    }
-    allocations_histogram {
-      lower_bound: 2
-      upper_bound: 2
-      value: 1
-    }
-    allocations_histogram {
-      lower_bound: 3
-      upper_bound: 3
-      value: 1
-    }
-    allocations_histogram {
-      lower_bound: 4
-      upper_bound: 4
-      value: 2
-    }
-    allocations_histogram {
-      lower_bound: 5
-      upper_bound: 16
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 17
-      upper_bound: 32
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 33
-      upper_bound: 48
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 49
-      upper_bound: 64
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 65
-      upper_bound: 80
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 81
-      upper_bound: 96
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 97
-      upper_bound: 112
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 113
-      upper_bound: 128
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 129
-      upper_bound: 144
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 145
-      upper_bound: 160
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 161
-      upper_bound: 176
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 177
-      upper_bound: 192
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 193
-      upper_bound: 208
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 209
-      upper_bound: 224
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 225
-      upper_bound: 240
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 241
-      upper_bound: 252
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 253
-      upper_bound: 253
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 254
-      upper_bound: 254
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 255
-      upper_bound: 255
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 256
-      upper_bound: 256
-      value: 0
-    }
-  }
-  filler_tracker {
-    type: DONATED
-    free_pages_histogram {
-      lower_bound: 0
-      upper_bound: 0
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 1
-      upper_bound: 1
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 2
-      upper_bound: 2
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 3
-      upper_bound: 3
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 4
-      upper_bound: 15
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 16
-      upper_bound: 31
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 32
-      upper_bound: 47
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 48
-      upper_bound: 63
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 64
-      upper_bound: 79
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 80
-      upper_bound: 95
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 96
-      upper_bound: 111
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 112
-      upper_bound: 127
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 128
-      upper_bound: 143
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 144
-      upper_bound: 159
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 160
-      upper_bound: 175
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 176
-      upper_bound: 191
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 192
-      upper_bound: 207
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 208
-      upper_bound: 223
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 224
-      upper_bound: 239
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 240
-      upper_bound: 251
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 252
-      upper_bound: 252
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 253
-      upper_bound: 253
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 254
-      upper_bound: 254
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 255
-      upper_bound: 255
-      value: 1
-    }
-    longest_free_range_histogram {
-      lower_bound: 0
-      upper_bound: 0
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 1
-      upper_bound: 1
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 2
-      upper_bound: 2
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 3
-      upper_bound: 3
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 4
-      upper_bound: 15
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 16
-      upper_bound: 31
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 32
-      upper_bound: 47
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 48
-      upper_bound: 63
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 64
-      upper_bound: 79
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 80
-      upper_bound: 95
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 96
-      upper_bound: 111
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 112
-      upper_bound: 127
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 128
-      upper_bound: 143
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 144
-      upper_bound: 159
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 160
-      upper_bound: 175
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 176
-      upper_bound: 191
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 192
-      upper_bound: 207
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 208
-      upper_bound: 223
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 224
-      upper_bound: 239
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 240
-      upper_bound: 251
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 252
-      upper_bound: 252
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 253
-      upper_bound: 253
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 254
-      upper_bound: 254
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 255
-      upper_bound: 255
-      value: 1
-    }
-    allocations_histogram {
-      lower_bound: 1
-      upper_bound: 1
-      value: 1
-    }
-    allocations_histogram {
-      lower_bound: 2
-      upper_bound: 2
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 3
-      upper_bound: 3
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 4
-      upper_bound: 4
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 5
-      upper_bound: 16
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 17
-      upper_bound: 32
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 33
-      upper_bound: 48
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 49
-      upper_bound: 64
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 65
-      upper_bound: 80
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 81
-      upper_bound: 96
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 97
-      upper_bound: 112
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 113
-      upper_bound: 128
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 129
-      upper_bound: 144
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 145
-      upper_bound: 160
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 161
-      upper_bound: 176
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 177
-      upper_bound: 192
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 193
-      upper_bound: 208
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 209
-      upper_bound: 224
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 225
-      upper_bound: 240
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 241
-      upper_bound: 252
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 253
-      upper_bound: 253
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 254
-      upper_bound: 254
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 255
-      upper_bound: 255
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 256
-      upper_bound: 256
-      value: 0
-    }
-  }
-  filler_tracker {
-    type: PARTIAL
-    free_pages_histogram {
-      lower_bound: 0
-      upper_bound: 0
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 1
-      upper_bound: 1
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 2
-      upper_bound: 2
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 3
-      upper_bound: 3
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 4
-      upper_bound: 15
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 16
-      upper_bound: 31
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 32
-      upper_bound: 47
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 48
-      upper_bound: 63
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 64
-      upper_bound: 79
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 80
-      upper_bound: 95
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 96
-      upper_bound: 111
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 112
-      upper_bound: 127
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 128
-      upper_bound: 143
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 144
-      upper_bound: 159
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 160
-      upper_bound: 175
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 176
-      upper_bound: 191
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 192
-      upper_bound: 207
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 208
-      upper_bound: 223
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 224
-      upper_bound: 239
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 240
-      upper_bound: 251
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 252
-      upper_bound: 252
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 253
-      upper_bound: 253
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 254
-      upper_bound: 254
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 255
-      upper_bound: 255
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 0
-      upper_bound: 0
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 1
-      upper_bound: 1
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 2
-      upper_bound: 2
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 3
-      upper_bound: 3
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 4
-      upper_bound: 15
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 16
-      upper_bound: 31
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 32
-      upper_bound: 47
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 48
-      upper_bound: 63
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 64
-      upper_bound: 79
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 80
-      upper_bound: 95
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 96
-      upper_bound: 111
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 112
-      upper_bound: 127
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 128
-      upper_bound: 143
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 144
-      upper_bound: 159
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 160
-      upper_bound: 175
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 176
-      upper_bound: 191
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 192
-      upper_bound: 207
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 208
-      upper_bound: 223
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 224
-      upper_bound: 239
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 240
-      upper_bound: 251
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 252
-      upper_bound: 252
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 253
-      upper_bound: 253
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 254
-      upper_bound: 254
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 255
-      upper_bound: 255
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 1
-      upper_bound: 1
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 2
-      upper_bound: 2
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 3
-      upper_bound: 3
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 4
-      upper_bound: 4
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 5
-      upper_bound: 16
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 17
-      upper_bound: 32
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 33
-      upper_bound: 48
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 49
-      upper_bound: 64
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 65
-      upper_bound: 80
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 81
-      upper_bound: 96
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 97
-      upper_bound: 112
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 113
-      upper_bound: 128
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 129
-      upper_bound: 144
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 145
-      upper_bound: 160
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 161
-      upper_bound: 176
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 177
-      upper_bound: 192
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 193
-      upper_bound: 208
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 209
-      upper_bound: 224
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 225
-      upper_bound: 240
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 241
-      upper_bound: 252
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 253
-      upper_bound: 253
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 254
-      upper_bound: 254
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 255
-      upper_bound: 255
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 256
-      upper_bound: 256
-      value: 0
-    }
-  }
-  filler_tracker {
-    type: RELEASED
-    free_pages_histogram {
-      lower_bound: 0
-      upper_bound: 0
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 1
-      upper_bound: 1
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 2
-      upper_bound: 2
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 3
-      upper_bound: 3
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 4
-      upper_bound: 15
-      value: 2
-    }
-    free_pages_histogram {
-      lower_bound: 16
-      upper_bound: 31
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 32
-      upper_bound: 47
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 48
-      upper_bound: 63
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 64
-      upper_bound: 79
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 80
-      upper_bound: 95
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 96
-      upper_bound: 111
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 112
-      upper_bound: 127
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 128
-      upper_bound: 143
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 144
-      upper_bound: 159
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 160
-      upper_bound: 175
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 176
-      upper_bound: 191
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 192
-      upper_bound: 207
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 208
-      upper_bound: 223
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 224
-      upper_bound: 239
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 240
-      upper_bound: 251
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 252
-      upper_bound: 252
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 253
-      upper_bound: 253
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 254
-      upper_bound: 254
-      value: 0
-    }
-    free_pages_histogram {
-      lower_bound: 255
-      upper_bound: 255
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 0
-      upper_bound: 0
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 1
-      upper_bound: 1
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 2
-      upper_bound: 2
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 3
-      upper_bound: 3
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 4
-      upper_bound: 15
-      value: 2
-    }
-    longest_free_range_histogram {
-      lower_bound: 16
-      upper_bound: 31
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 32
-      upper_bound: 47
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 48
-      upper_bound: 63
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 64
-      upper_bound: 79
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 80
-      upper_bound: 95
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 96
-      upper_bound: 111
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 112
-      upper_bound: 127
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 128
-      upper_bound: 143
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 144
-      upper_bound: 159
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 160
-      upper_bound: 175
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 176
-      upper_bound: 191
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 192
-      upper_bound: 207
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 208
-      upper_bound: 223
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 224
-      upper_bound: 239
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 240
-      upper_bound: 251
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 252
-      upper_bound: 252
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 253
-      upper_bound: 253
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 254
-      upper_bound: 254
-      value: 0
-    }
-    longest_free_range_histogram {
-      lower_bound: 255
-      upper_bound: 255
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 1
-      upper_bound: 1
-      value: 2
-    }
-    allocations_histogram {
-      lower_bound: 2
-      upper_bound: 2
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 3
-      upper_bound: 3
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 4
-      upper_bound: 4
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 5
-      upper_bound: 16
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 17
-      upper_bound: 32
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 33
-      upper_bound: 48
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 49
-      upper_bound: 64
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 65
-      upper_bound: 80
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 81
-      upper_bound: 96
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 97
-      upper_bound: 112
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 113
-      upper_bound: 128
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 129
-      upper_bound: 144
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 145
-      upper_bound: 160
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 161
-      upper_bound: 176
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 177
-      upper_bound: 192
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 193
-      upper_bound: 208
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 209
-      upper_bound: 224
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 225
-      upper_bound: 240
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 241
-      upper_bound: 252
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 253
-      upper_bound: 253
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 254
-      upper_bound: 254
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 255
-      upper_bound: 255
-      value: 0
-    }
-    allocations_histogram {
-      lower_bound: 256
-      upper_bound: 256
-      value: 0
-    }
-  }
-  filler_skipped_subrelease {
-    skipped_subrelease_interval_ms: 0
-    skipped_subrelease_pages: 0
-    correctly_skipped_subrelease_pages: 0
-    pending_skipped_subrelease_pages: 0
-    skipped_subrelease_count: 0
-    correctly_skipped_subrelease_count: 0
-    pending_skipped_subrelease_count: 0
-  }
-  filler_stats_timeseries {
-    window_ms: 1000
-    epochs: 600
-    min_free_pages_interval_ms: 300000
-    min_free_pages: 0
-    min_free_backed_pages: 0
-    measurements {
-      epoch: 599
-      timestamp_ms: 0
-      min_free_pages: 0
-      min_free_backed_pages: 0
-      num_pages_subreleased: 269
-      num_hugepages_broken: 3
-      at_minimum_demand {
-        num_pages: 0
-        regular_huge_pages: 0
-        donated_huge_pages: 0
-        partial_released_huge_pages: 0
-        released_huge_pages: 0
-        used_pages_in_subreleased_huge_pages: 0
-      }
-      at_maximum_demand {
-        num_pages: 1774
-        regular_huge_pages: 5
-        donated_huge_pages: 1
-        partial_released_huge_pages: 0
-        released_huge_pages: 2
-        used_pages_in_subreleased_huge_pages: 499
-      }
-      at_minimum_huge_pages {
-        num_pages: 0
-        regular_huge_pages: 0
-        donated_huge_pages: 0
-        partial_released_huge_pages: 0
-        released_huge_pages: 0
-        used_pages_in_subreleased_huge_pages: 0
-      }
-      at_maximum_huge_pages {
-        num_pages: 1774
-        regular_huge_pages: 5
-        donated_huge_pages: 1
-        partial_released_huge_pages: 0
-        released_huge_pages: 2
-        used_pages_in_subreleased_huge_pages: 499
-      }
-    }
-  }
 )"));
   for (const auto& alloc : allocs) {
     Delete(alloc);
@@ -3554,7 +1882,7 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
 
   std::string buffer(1024 * 1024, '\0');
   {
-    TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
+    Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, /*everything=*/true);
     buffer.erase(printer.SpaceRequired());
   }
@@ -3606,7 +1934,7 @@ TEST_P(FillerTest, ConstantBrokenHugePages) {
 
     std::string buffer(1024 * 1024, '\0');
     {
-      TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
+      Printer printer(&*buffer.begin(), buffer.size());
       filler_.Print(&printer, /*everything=*/false);
       buffer.erase(printer.SpaceRequired());
     }
@@ -3654,9 +1982,9 @@ TEST_P(FillerTest, CheckBufferSize) {
   Delete(big);
 
   std::string buffer(1024 * 1024, '\0');
-  TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
+  Printer printer(&*buffer.begin(), buffer.size());
   {
-    PbtxtRegion region(&printer, kTop, /*indent=*/0);
+    PbtxtRegion region(&printer, kTop);
     filler_.PrintInPbtxt(&region);
   }
 
@@ -3772,4 +2100,5 @@ INSTANTIATE_TEST_SUITE_P(All, FillerTest,
                                          FillerPartialRerelease::Retain));
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

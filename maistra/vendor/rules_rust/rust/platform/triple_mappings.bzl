@@ -1,5 +1,7 @@
 """Helpers for constructing supported Rust platform triples"""
 
+load("//rust/platform:triple.bzl", "triple")
+
 # All T1 Platforms should be supported, but aren't, see inline notes.
 SUPPORTED_T1_PLATFORM_TRIPLES = [
     "i686-apple-darwin",
@@ -23,6 +25,7 @@ SUPPORTED_T2_PLATFORM_TRIPLES = [
     "aarch64-linux-android",
     "aarch64-unknown-linux-gnu",
     "arm-unknown-linux-gnueabi",
+    "armv7-unknown-linux-gnueabi",
     "i686-linux-android",
     "i686-unknown-freebsd",
     "powerpc-unknown-linux-gnu",
@@ -54,6 +57,7 @@ _CPU_ARCH_TO_BUILTIN_PLAT_SUFFIX = {
     "powerpc64le": None,
     "s390": None,
     "s390x": "s390x",
+    "thumbv7m": "armv7",
     "wasm32": None,
     "x86_64": "x86_64",
 }
@@ -64,6 +68,7 @@ _SYSTEM_TO_BUILTIN_SYS_SUFFIX = {
     "bitrig": None,
     "darwin": "osx",
     "dragonfly": None,
+    "eabi": "none",
     "emscripten": None,
     "freebsd": "freebsd",
     "ios": "ios",
@@ -80,6 +85,7 @@ _SYSTEM_TO_BUILTIN_SYS_SUFFIX = {
 _SYSTEM_TO_BINARY_EXT = {
     "android": "",
     "darwin": "",
+    "eabi": "",
     "emscripten": ".js",
     "freebsd": "",
     "ios": "",
@@ -95,6 +101,7 @@ _SYSTEM_TO_BINARY_EXT = {
 _SYSTEM_TO_STATICLIB_EXT = {
     "android": ".a",
     "darwin": ".a",
+    "eabi": ".a",
     "emscripten": ".js",
     "freebsd": ".a",
     "ios": ".a",
@@ -107,6 +114,7 @@ _SYSTEM_TO_STATICLIB_EXT = {
 _SYSTEM_TO_DYLIB_EXT = {
     "android": ".so",
     "darwin": ".dylib",
+    "eabi": ".so",
     "emscripten": ".js",
     "freebsd": ".so",
     "ios": ".dylib",
@@ -128,6 +136,7 @@ _SYSTEM_TO_STDLIB_LINKFLAGS = {
     "cloudabi": ["-lunwind", "-lc", "-lcompiler_rt"],
     "darwin": ["-lSystem", "-lresolv"],
     "dragonfly": ["-lpthread"],
+    "eabi": [],
     "emscripten": [],
     # TODO(bazelbuild/rules_cc#75):
     #
@@ -144,7 +153,7 @@ _SYSTEM_TO_STDLIB_LINKFLAGS = {
     "freebsd": ["-lexecinfo", "-lpthread"],
     "fuchsia": ["-lzircon", "-lfdio"],
     "illumos": ["-lsocket", "-lposix4", "-lpthread", "-lresolv", "-lnsl", "-lumem"],
-    "ios": ["-lSystem", "-lobjc", "-framework Security", "-framework Foundation", "-lresolv"],
+    "ios": ["-lSystem", "-lobjc", "-Wl,-framework,Security", "-Wl,-framework,Foundation", "-lresolv"],
     # TODO: This ignores musl. Longer term what does Bazel think about musl?
     "linux": ["-ldl", "-lpthread"],
     "nacl": [],
@@ -165,7 +174,7 @@ def cpu_arch_to_constraints(cpu_arch):
 
     return ["@platforms//cpu:{}".format(plat_suffix)]
 
-def vendor_to_constraints(vendor):
+def vendor_to_constraints(_vendor):
     # TODO(acmcarther): Review:
     #
     # My current understanding is that vendors can't have a material impact on
@@ -181,45 +190,52 @@ def system_to_constraints(system):
     return ["@platforms//os:{}".format(sys_suffix)]
 
 def abi_to_constraints(abi):
-    # TODO(acmcarther): Implement when C++ toolchain is more mature and we
-    # figure out how they're doing this
-    return []
+    # iOS simulator
+    if abi == "sim":
+        return ["@build_bazel_apple_support//constraints:simulator"]
+    else:
+        # TODO(acmcarther): Implement when C++ toolchain is more mature and we
+        # figure out how they're doing this
+        return []
 
-def triple_to_system(triple):
+def triple_to_system(target_triple):
     """Returns a system name for a given platform triple
 
+    **Deprecated**: Use triple() from triple.bzl directly.
+
     Args:
-        triple (str): A platform triple. eg: `x86_64-unknown-linux-gnu`
+        target_triple (str): A platform triple. eg: `x86_64-unknown-linux-gnu`
 
     Returns:
         str: A system name
     """
-    if triple == "wasm32-wasi":
-        return "wasi"
+    return triple(target_triple).system
 
-    component_parts = triple.split("-")
-    if len(component_parts) < 3:
-        fail("Expected target triple to contain at least three sections separated by '-'")
-
-    return component_parts[2]
-
-def triple_to_arch(triple):
+def triple_to_arch(target_triple):
     """Returns a system architecture name for a given platform triple
 
+    **Deprecated**: Use triple() from triple.bzl directly.
+
     Args:
-        triple (str): A platform triple. eg: `x86_64-unknown-linux-gnu`
+        target_triple (str): A platform triple. eg: `x86_64-unknown-linux-gnu`
 
     Returns:
         str: A cpu architecture
     """
-    if triple == "wasm32-wasi":
-        return "wasi"
+    return triple(target_triple).arch
 
-    component_parts = triple.split("-")
-    if len(component_parts) < 3:
-        fail("Expected target triple to contain at least three sections separated by '-'")
+def triple_to_abi(target_triple):
+    """Returns a system abi name for a given platform triple
 
-    return component_parts[0]
+    **Deprecated**: Use triple() from triple.bzl directly.
+
+    Args:
+        target_triple (str): A platform triple. eg: `x86_64-unknown-linux-gnu`
+
+    Returns:
+        str: The triple's abi
+    """
+    return triple(target_triple).system
 
 def system_to_dylib_ext(system):
     return _SYSTEM_TO_DYLIB_EXT[system]
@@ -233,42 +249,39 @@ def system_to_binary_ext(system):
 def system_to_stdlib_linkflags(system):
     return _SYSTEM_TO_STDLIB_LINKFLAGS[system]
 
-def triple_to_constraint_set(triple):
+def triple_to_constraint_set(target_triple):
     """Returns a set of constraints for a given platform triple
 
     Args:
-        triple (str): A platform triple. eg: `x86_64-unknown-linux-gnu`
+        target_triple (str): A platform triple. eg: `x86_64-unknown-linux-gnu`
 
     Returns:
         list: A list of constraints (each represented by a list of strings)
     """
-    if triple == "wasm32-wasi":
+    if target_triple == "wasm32-wasi":
         return [
             "@rules_rust//rust/platform/cpu:wasm32",
             "@rules_rust//rust/platform/os:wasi",
         ]
-    if triple == "wasm32-unknown-unknown":
+    if target_triple == "wasm32-unknown-unknown":
         return [
             "@rules_rust//rust/platform/cpu:wasm32",
             "@rules_rust//rust/platform/os:unknown",
         ]
 
-    component_parts = triple.split("-")
-    if len(component_parts) < 3:
-        fail("Expected target triple to contain at least three sections separated by '-'")
+    # Workaround for https://github.com/bazelbuild/bazel/issues/14982
+    if target_triple in ("armv7-linux-androideabi", "thumbv7neon-linux-androideabi"):
+        return [
+            "@platforms//cpu:arm",
+            "@platforms//os:android",
+        ]
 
-    cpu_arch = component_parts[0]
-    vendor = component_parts[1]
-    system = component_parts[2]
-    abi = None
-
-    if len(component_parts) == 4:
-        abi = component_parts[3]
+    triple_struct = triple(target_triple)
 
     constraint_set = []
-    constraint_set += cpu_arch_to_constraints(cpu_arch)
-    constraint_set += vendor_to_constraints(vendor)
-    constraint_set += system_to_constraints(system)
-    constraint_set += abi_to_constraints(abi)
+    constraint_set += cpu_arch_to_constraints(triple_struct.arch)
+    constraint_set += vendor_to_constraints(triple_struct.vendor)
+    constraint_set += system_to_constraints(triple_struct.system)
+    constraint_set += abi_to_constraints(triple_struct.abi)
 
     return constraint_set

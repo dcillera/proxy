@@ -101,6 +101,11 @@ You may need to use the flags --cpu=x64_windows --compiler=mingw-gcc.`)
 		b.WriteString(sep)
 		sep = "|"
 		b.WriteString(regexp.QuoteMeta(f))
+		// If the flag if -framework, the flag value needs to be in the same
+		// condition.
+		if f == "-framework" {
+			sep = " "
+		}
 	}
 	os.Setenv("CGO_LDFLAGS_ALLOW", b.String())
 
@@ -112,7 +117,7 @@ You may need to use the flags --cpu=x64_windows --compiler=mingw-gcc.`)
 	// we strip the build ids, since they won't be used after this.
 	installArgs := goenv.goCmd("install", "-toolexec", abs(os.Args[0])+" filterbuildid")
 	if len(build.Default.BuildTags) > 0 {
-		installArgs = append(installArgs, "-tags", strings.Join(build.Default.BuildTags, " "))
+		installArgs = append(installArgs, "-tags", strings.Join(build.Default.BuildTags, ","))
 	}
 
 	gcflags := []string{}

@@ -1,0 +1,1 @@
+workspace(name = "wasmtime__smallvec__1_8_0")

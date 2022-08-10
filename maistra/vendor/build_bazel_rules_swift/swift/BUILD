@@ -1,5 +1,5 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
-load("@bazel_skylib//rules:common_settings.bzl", "bool_setting")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "bool_setting")
 load(
     "//swift/internal:build_settings.bzl",
     "per_module_swiftcopt_flag",
@@ -10,11 +10,16 @@ package(default_visibility = ["//visibility:public"])
 licenses(["notice"])
 
 bzl_library(
+    name = "bazel_tools_bzl",
+    srcs = ["@bazel_tools//tools:bzl_srcs"],
+)
+
+bzl_library(
     name = "repositories",
     srcs = ["repositories.bzl"],
     deps = [
+        ":bazel_tools_bzl",
         "//swift/internal:swift_autoconfiguration",
-        "@bazel_tools//tools/build_defs/repo:http.bzl",
     ],
 )
 
@@ -26,6 +31,7 @@ bzl_library(
         "//swift/internal:swift_binary_test",
         "//swift/internal:swift_c_module",
         "//swift/internal:swift_common",
+        "//swift/internal:swift_feature_allowlist",
         "//swift/internal:swift_grpc_library",
         "//swift/internal:swift_import",
         "//swift/internal:swift_library",
@@ -58,6 +64,18 @@ per_module_swiftcopt_flag(
 bool_setting(
     name = "emit_swiftinterface",
     build_setting_default = False,
+)
+
+bool_flag(
+    name = "universal_tools",
+    build_setting_default = False,
+)
+
+config_setting(
+    name = "universal_tools_config",
+    flag_values = {
+        "@build_bazel_rules_swift//swift:universal_tools": "true",
+    },
 )
 
 # Configuration setting for forcing generation of Apple targets.

@@ -17,14 +17,10 @@ def main():
     os.environ["TARGET_CFLAGS"] = os.environ.get("CFLAGS", "") + " -fno-function-sections -fno-data-sections"
     os.environ["TARGET_LDFLAGS"] = os.environ.get("CFLAGS", "") + " -fno-function-sections -fno-data-sections"
     os.environ["CFLAGS"] = ""
-    # LuaJIT compile process build a tool `buildvm` and use it, building `buildvm` with ASAN
-    # will cause LSAN detect its leak and fail the build, set exitcode to 0 to make LSAN doesn't
-    # fail on it.
-    os.environ["LSAN_OPTIONS"] = "exitcode=0"
+    os.environ["LDFLAGS"] = ""
 
-    if "ENVOY_MSAN" in os.environ:
-      os.environ["HOST_CFLAGS"] = "-fno-sanitize=memory"
-      os.environ["HOST_LDFLAGS"] = "-fno-sanitize=memory"
+    # Don't strip the binary - it doesn't work when cross-compiling, and we don't use it anyway.
+    os.environ["TARGET_STRIP"] = "@echo"
 
     # Remove LuaJIT from ASAN for now.
     # TODO(htuch): Remove this when https://github.com/envoyproxy/envoy/issues/6084 is resolved.

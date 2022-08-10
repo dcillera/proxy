@@ -18,8 +18,9 @@
 # https://github.com/google/tcmalloc/tree/master/docs/design.md for a high-level description of
 # how this malloc works.
 
+load("@rules_fuzzing//fuzzing:cc_defs.bzl", "cc_fuzz_test")
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
-load("//tcmalloc:variants.bzl", "create_tcmalloc_testsuite")
+load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark", "create_tcmalloc_testsuite")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -32,7 +33,10 @@ config_setting(
     flag_values = {
         "@bazel_tools//tools/cpp:compiler": "clang",
     },
-    visibility = ["//visibility:private"],
+    visibility = [
+        "//tcmalloc/internal:__subpackages__",
+        "//tcmalloc/testing:__subpackages__",
+    ],
 )
 
 cc_library(
@@ -43,6 +47,7 @@ cc_library(
         "experiment_config.h",
     ],
     copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//third_party/protobuf:__pkg__"],
     deps = [
         ":malloc_extension",
         "//tcmalloc/internal:environment",
@@ -58,6 +63,7 @@ cc_library(
 tcmalloc_deps = [
     ":experiment",
     ":malloc_extension",
+    ":new_extension",
     "@com_google_absl//absl/base",
     "@com_google_absl//absl/base:config",
     "@com_google_absl//absl/base:core_headers",
@@ -67,11 +73,13 @@ tcmalloc_deps = [
     "@com_google_absl//absl/debugging:symbolize",
     "@com_google_absl//absl/memory",
     "@com_google_absl//absl/strings",
-    "//tcmalloc/internal:bits",
+    "@com_google_absl//absl/numeric:bits",
+    "//tcmalloc/internal:config",
     "//tcmalloc/internal:declarations",
     "//tcmalloc/internal:linked_list",
     "//tcmalloc/internal:logging",
     "//tcmalloc/internal:memory_stats",
+    "//tcmalloc/internal:optimization",
     "//tcmalloc/internal:percpu",
 ]
 
@@ -96,7 +104,6 @@ cc_library(
 )
 
 # Provides tcmalloc always; use per-thread mode.
-#
 cc_library(
     name = "tcmalloc_deprecated_perthread",
     srcs = [
@@ -135,8 +142,8 @@ cc_library(
     ],
     copts = [
         "-O2",
-        "-UNDEBUG",
     ] + TCMALLOC_DEFAULT_COPTS,
+    deprecation = "Replace :opt_with_assertions with :tcmalloc",
     linkstatic = 1,
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
@@ -165,10 +172,11 @@ common_srcs = [
     "common.h",
     "cpu_cache.cc",
     "cpu_cache.h",
-    "experimental_56_size_class.cc",
-    "experimental_4k_size_class.cc",
+    "experimental_pow2_below64_size_class.cc",
+    "experimental_pow2_size_class.cc",
     "guarded_page_allocator.h",
     "guarded_page_allocator.cc",
+    "hinted_tracker_lists.h",
     "huge_address_map.cc",
     "huge_allocator.cc",
     "huge_allocator.h",
@@ -179,6 +187,8 @@ common_srcs = [
     "huge_page_aware_allocator.h",
     "huge_page_filler.h",
     "huge_pages.h",
+    "lifetime_based_allocator.h",
+    "lifetime_based_allocator.cc",
     "page_allocator.cc",
     "page_allocator.h",
     "page_allocator_interface.cc",
@@ -203,7 +213,6 @@ common_srcs = [
     "stats.cc",
     "system-alloc.cc",
     "system-alloc.h",
-    "tcmalloc.h",
     "thread_cache.cc",
     "thread_cache.h",
     "tracking.h",
@@ -219,6 +228,7 @@ common_hdrs = [
     "common.h",
     "cpu_cache.h",
     "guarded_page_allocator.h",
+    "hinted_tracker_lists.h",
     "huge_address_map.h",
     "huge_allocator.h",
     "tcmalloc_policy.h",
@@ -227,6 +237,7 @@ common_hdrs = [
     "huge_pages.h",
     "huge_region.h",
     "huge_page_aware_allocator.h",
+    "lifetime_based_allocator.h",
     "page_allocator.h",
     "page_allocator_interface.h",
     "page_heap.h",
@@ -242,7 +253,6 @@ common_hdrs = [
     "stats.h",
     "static_vars.h",
     "system-alloc.h",
-    "tcmalloc.h",
     "thread_cache.h",
     "tracking.h",
     "transfer_cache_stats.h",
@@ -252,7 +262,9 @@ common_hdrs = [
 
 common_deps = [
     ":experiment",
+    ":explicitly_constructed",
     ":malloc_extension",
+    ":new_extension",
     ":noruntime_size_classes",
     ":size_class_info",
     "@com_google_absl//absl/algorithm:container",
@@ -260,7 +272,7 @@ common_deps = [
     "@com_google_absl//absl/base:config",
     "@com_google_absl//absl/base:core_headers",
     "@com_google_absl//absl/base:dynamic_annotations",
-    "@com_google_absl//absl/debugging:debugging_internal",
+    "@com_google_absl//absl/container:fixed_array",
     "@com_google_absl//absl/debugging:stacktrace",
     "@com_google_absl//absl/debugging:symbolize",
     "@com_google_absl//absl/synchronization",
@@ -272,13 +284,20 @@ common_deps = [
     "@com_google_absl//absl/types:optional",
     "@com_google_absl//absl/types:span",
     "//tcmalloc/internal:atomic_stats_counter",
-    "//tcmalloc/internal:bits",
+    "@com_google_absl//absl/numeric:bits",
+    "//tcmalloc:sampled_allocation",
+    "//tcmalloc:sampled_allocation_recorder",
     "//tcmalloc/internal:config",
     "//tcmalloc/internal:declarations",
     "//tcmalloc/internal:environment",
+    "//tcmalloc/internal:lifetime_predictions",
+    "//tcmalloc/internal:lifetime_tracker",
     "//tcmalloc/internal:linked_list",
     "//tcmalloc/internal:logging",
     "//tcmalloc/internal:mincore",
+    "//tcmalloc/internal:numa",
+    "//tcmalloc/internal:cache_topology",
+    "//tcmalloc/internal:optimization",
     "//tcmalloc/internal:parameter_accessors",
     "//tcmalloc/internal:percpu",
     "//tcmalloc/internal:percpu_tcmalloc",
@@ -308,6 +327,16 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_library(
+    name = "explicitly_constructed",
+    hdrs = ["explicitly_constructed.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = [
+        "//tcmalloc/internal:config",
+    ],
+)
+
 # TEMPORARY. WILL BE REMOVED.
 # Add a dep to this if you want your binary to use hugepage-aware
 # allocator.
@@ -317,6 +346,7 @@ cc_library(
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
     visibility = ["//visibility:public"],
     deps = [
+        "//tcmalloc/internal:config",
         "@com_google_absl//absl/base:core_headers",
     ],
     alwayslink = 1,
@@ -331,6 +361,7 @@ cc_library(
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
     visibility = ["//visibility:public"],
     deps = [
+        "//tcmalloc/internal:config",
         "@com_google_absl//absl/base:core_headers",
     ],
     alwayslink = 1,
@@ -343,23 +374,27 @@ cc_library(
     name = "want_no_hpaa",
     srcs = ["want_no_hpaa.cc"],
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc/testing:__pkg__",
-    ],
+    visibility = ["//tcmalloc/testing:__pkg__"],
     deps = [
+        "//tcmalloc/internal:config",
         "@com_google_absl//absl/base:core_headers",
     ],
     alwayslink = 1,
 )
 
-# TEMPORARY. WILL BE REMOVED.
-# Add a dep to this if you want your binary to use old span sizes.
+# Add a dep to this if you want your binary to enable NUMA awareness by
+# default.
 cc_library(
-    name = "want_legacy_spans",
-    srcs = ["want_legacy_spans.cc"],
+    name = "want_numa_aware",
+    srcs = ["want_numa_aware.cc"],
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//visibility:public"],
+    visibility = [
+        "//tcmalloc:__pkg__",
+        "//tcmalloc/internal:__pkg__",
+        "//tcmalloc/testing:__pkg__",
+    ],
     deps = [
+        "//tcmalloc/internal:config",
         "@com_google_absl//absl/base:core_headers",
     ],
     alwayslink = 1,
@@ -458,6 +493,42 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_library(
+    name = "tcmalloc_256k_pages_and_numa",
+    srcs = [
+        "libc_override.h",
+        "libc_override_gcc_and_weak.h",
+        "libc_override_glibc.h",
+        "libc_override_redefine.h",
+        "tcmalloc.cc",
+        "tcmalloc.h",
+    ],
+    copts = [
+        "-DTCMALLOC_256K_PAGES",
+        "-DTCMALLOC_NUMA_AWARE",
+    ] + TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    visibility = ["//tcmalloc/testing:__pkg__"],
+    deps = tcmalloc_deps + [
+        ":common_256k_pages_and_numa",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "common_256k_pages_and_numa",
+    srcs = common_srcs,
+    hdrs = common_hdrs,
+    copts = [
+        "-DTCMALLOC_256K_PAGES",
+        "-DTCMALLOC_NUMA_AWARE",
+    ] + TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    visibility = ["//tcmalloc:tcmalloc_tests"],
+    deps = common_deps,
+    alwayslink = 1,
+)
+
 # TCMalloc small-but-slow is a a version of TCMalloc that chooses to minimize
 # fragmentation at a *severe* cost to performance.  It should be used by
 # applications that have significant memory constraints, but don't need to
@@ -494,7 +565,41 @@ cc_library(
     alwayslink = 1,
 )
 
-# Export some header files to tcmalloc/testing/...
+# TCMalloc with NUMA awareness compiled in. Note that by default NUMA awareness
+# will still be disabled at runtime - this default can be changed by adding a
+# dependency upon want_numa_aware, or overridden by setting the
+# TCMALLOC_NUMA_AWARE environment variable.
+cc_library(
+    name = "tcmalloc_numa_aware",
+    srcs = [
+        "libc_override.h",
+        "libc_override_gcc_and_weak.h",
+        "libc_override_glibc.h",
+        "libc_override_redefine.h",
+        "tcmalloc.cc",
+        "tcmalloc.h",
+    ],
+    copts = ["-DTCMALLOC_NUMA_AWARE"] + TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    visibility = ["//tcmalloc/testing:__pkg__"],
+    deps = tcmalloc_deps + [
+        ":common_numa_aware",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "common_numa_aware",
+    srcs = common_srcs,
+    hdrs = common_hdrs,
+    copts = ["-DTCMALLOC_NUMA_AWARE"] + TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    visibility = ["//tcmalloc:tcmalloc_tests"],
+    deps = common_deps,
+    alwayslink = 1,
+)
+
+# Export some header files to //tcmalloc/testing/...
 package_group(
     name = "tcmalloc_tests",
     packages = [
@@ -508,6 +613,7 @@ cc_library(
         "arena.h",
         "central_freelist.h",
         "guarded_page_allocator.h",
+        "hinted_tracker_lists.h",
         "huge_address_map.h",
         "huge_allocator.h",
         "huge_cache.h",
@@ -515,6 +621,7 @@ cc_library(
         "huge_page_filler.h",
         "huge_pages.h",
         "huge_region.h",
+        "lifetime_based_allocator.h",
         "page_allocator.h",
         "page_allocator_interface.h",
         "page_heap.h",
@@ -554,6 +661,21 @@ cc_library(
         ":common",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_library(
+    name = "mock_static_forwarder",
+    testonly = 1,
+    hdrs = ["mock_static_forwarder.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":common",
+        ":mock_transfer_cache",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest",
     ],
 )
@@ -601,15 +723,12 @@ cc_library(
     ],
 )
 
-cc_library(
+cc_fuzz_test(
     name = "transfer_cache_fuzz",
     testonly = 1,
     srcs = ["transfer_cache_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
     ],
     deps = [
         ":common",
@@ -619,12 +738,23 @@ cc_library(
 )
 
 cc_test(
+    name = "arena_test",
+    timeout = "moderate",
+    srcs = ["arena_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":common",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "transfer_cache_test",
-    timeout = "short",
+    timeout = "moderate",
     srcs = ["transfer_cache_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-    ],
+    shard_count = 3,
     deps = [
         ":common",
         ":mock_central_freelist",
@@ -640,18 +770,16 @@ cc_test(
     ],
 )
 
-cc_binary(
+create_tcmalloc_benchmark(
     name = "transfer_cache_benchmark",
-    testonly = 1,
     srcs = ["transfer_cache_benchmark.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    linkstatic = 1,
     malloc = "//tcmalloc",
     deps = [
         ":common",
         ":mock_central_freelist",
         ":mock_transfer_cache",
-        "@com_github_google_benchmark//:benchmark_main",
+        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/types:optional",
     ],
 )
@@ -721,6 +849,8 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
+    tags = [
+    ],
     deps = [
         ":common",
         ":malloc_extension",
@@ -756,17 +886,15 @@ cc_test(
     ],
 )
 
-cc_binary(
+create_tcmalloc_benchmark(
     name = "guarded_page_allocator_benchmark",
-    testonly = 1,
     srcs = ["guarded_page_allocator_benchmark.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    linkstatic = 1,
     malloc = "//tcmalloc",
     deps = [
         ":common",
         "//tcmalloc/internal:logging",
-        "@com_github_google_benchmark//:benchmark_main",
+        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
     ],
 )
@@ -783,6 +911,7 @@ cc_test(
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/numeric:bits",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
@@ -836,11 +965,7 @@ cc_test(
     srcs = ["system-alloc_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
+    tags = ["nosan"],
     deps = [
         ":common",
         ":malloc_extension",
@@ -860,14 +985,16 @@ cc_test(
     srcs = ["tcmalloc_large_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
-    tags = ["noasan"],
+    tags = [
+        "noasan",
+        "noubsan",
+    ],
     deps = [
         ":common",
         ":malloc_extension",
         "//tcmalloc/internal:logging",
         "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/base",
-        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/container:node_hash_set",
         "@com_google_googletest//:gtest_main",
     ],
@@ -892,31 +1019,40 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
+        "nosan",
     ],
     deps = [
         ":malloc_extension",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
     ],
 )
 
-cc_library(
+cc_fuzz_test(
     name = "malloc_extension_fuzz",
     testonly = 1,
     srcs = ["malloc_extension_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
     deps = [
         ":malloc_extension",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
+    ],
+)
+
+cc_test(
+    name = "lifetime_based_allocator_test",
+    srcs = ["lifetime_based_allocator_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":common",
+        "//tcmalloc/testing:testutil",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
     ],
 )
 
@@ -943,6 +1079,7 @@ cc_test(
 cc_test(
     name = "profile_test",
     size = "medium",
+    timeout = "long",
     srcs = ["profile_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
@@ -955,6 +1092,7 @@ cc_test(
     ],
     deps = [
         ":malloc_extension",
+        ":new_extension",
         "//tcmalloc/internal:declarations",
         "//tcmalloc/internal:linked_list",
         "//tcmalloc/testing:testutil",
@@ -973,9 +1111,7 @@ cc_test(
     linkstatic = 1,
     malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
+        "nosan",
     ],
     deps = [
         ":malloc_extension",
@@ -1024,16 +1160,19 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
+        "nosan",
     ],
     deps = [
         ":common",
         ":malloc_extension",
+        "//tcmalloc:sampled_allocation",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:parameter_accessors",
+        "//tcmalloc/testing:test_allocator_harness",
+        "//tcmalloc/testing:thread_manager",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -1047,6 +1186,58 @@ cc_test(
     deps = [
         ":runtime_size_classes",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "sampled_allocation",
+    srcs = ["sampled_allocation.cc"],
+    hdrs = ["sampled_allocation.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = [
+        ":sampled_allocation_recorder",
+        "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/debugging:stacktrace",
+    ],
+)
+
+cc_test(
+    name = "sampled_allocation_test",
+    srcs = ["sampled_allocation_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":sampled_allocation",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "sampled_allocation_recorder",
+    hdrs = ["sampled_allocation_recorder.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = [
+        "//tcmalloc/internal:config",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/functional:function_ref",
+    ],
+)
+
+cc_test(
+    name = "sampled_allocation_recorder_test",
+    srcs = ["sampled_allocation_recorder_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":explicitly_constructed",
+        ":sampled_allocation_recorder",
+        "//tcmalloc/testing:thread_manager",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -1065,17 +1256,15 @@ create_tcmalloc_testsuite(
     ],
 )
 
-cc_binary(
+create_tcmalloc_benchmark(
     name = "span_benchmark",
-    testonly = 1,
     srcs = ["span_benchmark.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    linkstatic = 1,
     malloc = ":tcmalloc",
     deps = [
         ":common",
         "//tcmalloc/internal:logging",
-        "@com_github_google_benchmark//:benchmark_main",
+        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/random",
     ],
@@ -1119,14 +1308,41 @@ cc_library(
     ],
     deps = [
         "//tcmalloc/internal:parameter_accessors",
+        "@com_google_absl//absl/base:config",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/base:dynamic_annotations",
         "@com_google_absl//absl/base:malloc_internal",
         "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:optional",
         "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_library(
+    name = "new_extension",
+    srcs = ["new_extension.cc"],
+    hdrs = ["new_extension.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [":__subpackages__"],
+    deps = [
+        ":malloc_extension",
+        "@com_google_absl//absl/base:core_headers",
+    ],
+)
+
+create_tcmalloc_testsuite(
+    name = "new_extension_test",
+    srcs = ["new_extension_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":new_extension",
+        "//tcmalloc/testing:testutil",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/random",
+        "@com_google_googletest//:gtest_main",
     ],
 )
 
@@ -1141,7 +1357,7 @@ cc_test(
     ],
 )
 
-cc_library(
+cc_fuzz_test(
     name = "experiment_fuzz",
     testonly = 1,
     srcs = ["experiment_fuzz.cc"],
@@ -1152,7 +1368,7 @@ cc_library(
     ],
 )
 
-cc_library(
+cc_fuzz_test(
     name = "runtime_size_classes_fuzz",
     testonly = 1,
     srcs = ["runtime_size_classes_fuzz.cc"],
@@ -1169,22 +1385,97 @@ cc_test(
     name = "cpu_cache_test",
     srcs = ["cpu_cache_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = ":tcmalloc_deprecated_perthread",
+    malloc = ":tcmalloc",
     deps = [
-        ":common_deprecated_perthread",
+        ":common",
+        ":mock_transfer_cache",
+        "//tcmalloc/internal:optimization",
         "//tcmalloc/internal:util",
+        "//tcmalloc/testing:testutil",
+        "//tcmalloc/testing:thread_manager",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base:dynamic_annotations",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:bit_gen_ref",
+        "@com_google_absl//absl/random:seed_sequences",
+        "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
     ],
 )
 
-create_tcmalloc_testsuite(
+cc_test(
+    name = "cpu_cache_activate_test",
+    srcs = ["cpu_cache_activate_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = ":tcmalloc_deprecated_perthread",
+    deps = [
+        ":common_deprecated_perthread",
+        ":malloc_extension",
+        "//tcmalloc/internal:percpu",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "central_freelist_test",
     srcs = ["central_freelist_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
+        ":common",
+        ":mock_static_forwarder",
+        "//tcmalloc/testing:thread_manager",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/random",
         "@com_google_googletest//:gtest_main",
+    ],
+)
+
+create_tcmalloc_benchmark(
+    name = "central_freelist_benchmark",
+    srcs = ["central_freelist_benchmark.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc",
+    deps = [
+        ":common",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/types:optional",
+    ],
+)
+
+cc_library(
+    name = "profile_marshaler",
+    srcs = ["profile_marshaler.cc"],
+    hdrs = ["profile_marshaler.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":malloc_extension",
+        "//tcmalloc/internal:profile_builder",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_test(
+    name = "profile_marshaler_test",
+    srcs = ["profile_marshaler_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":profile_marshaler",
+        "//tcmalloc/internal:fake_profile",
+        "//tcmalloc/internal:profile_cc_proto",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_protobuf//:protobuf",
     ],
 )

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 load(
-    "@io_bazel_rules_go//go/private:platforms.bzl",
+    "//go/private:platforms.bzl",
     _GOARCH = "GOARCH_CONSTRAINTS",
     _GOOS = "GOOS_CONSTRAINTS",
     _GOOS_GOARCH = "GOOS_GOARCH",
@@ -38,38 +38,19 @@ def declare_config_settings():
     for goos in GOOS:
         native.config_setting(
             name = goos,
-            constraint_values = ["@io_bazel_rules_go//go/toolchain:" + goos],
+            constraint_values = [Label("//go/toolchain:" + goos)],
         )
     for goarch in GOARCH:
         native.config_setting(
             name = goarch,
-            constraint_values = ["@io_bazel_rules_go//go/toolchain:" + goarch],
+            constraint_values = [Label("//go/toolchain:" + goarch)],
         )
     for goos, goarch in GOOS_GOARCH:
         native.config_setting(
             name = goos + "_" + goarch,
             constraint_values = [
-                "@io_bazel_rules_go//go/toolchain:" + goos,
-                "@io_bazel_rules_go//go/toolchain:" + goarch,
-            ],
-        )
-
-    # Additional settings for ios. Unfortunately, we cannot have a "darwin"
-    # setting that covers both operating systems, so "darwin" here means macOS.
-    # The "darwin" build tag will be true for both during execution; this only
-    # matters when evaluating select expressions.
-    native.config_setting(
-        name = "ios",
-        constraint_values = [
-            "@platforms//os:ios",
-        ],
-    )
-    for goarch in ("arm", "arm64", "386", "amd64"):
-        native.config_setting(
-            name = "ios_" + goarch,
-            constraint_values = [
-                "@platforms//os:ios",
-                "@io_bazel_rules_go//go/toolchain:" + goarch,
+                Label("//go/toolchain:" + goos),
+                Label("//go/toolchain:" + goarch),
             ],
         )
 
@@ -78,6 +59,6 @@ def declare_config_settings():
     # to build settings.
     native.config_setting(
         name = "internal_cgo_off",
-        constraint_values = ["@io_bazel_rules_go//go/toolchain:cgo_off"],
-        visibility = ["@io_bazel_rules_go//:__pkg__"],
+        constraint_values = [Label("//go/toolchain:cgo_off")],
+        visibility = [Label("//:__pkg__")],
     )

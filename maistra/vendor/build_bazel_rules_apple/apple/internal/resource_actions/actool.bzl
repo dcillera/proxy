@@ -130,6 +130,11 @@ def _actool_args_for_special_file_types(
         app_icon_name = paths.split_extension(paths.basename(icon_dirs[0]))[0]
         args += ["--app-icon", app_icon_name]
 
+    # Add arguments for watch extension complication, if there is one.
+    complication_files = [f for f in asset_files if ".complicationset/" in f.path]
+    if product_type == apple_product_type.watch2_extension and complication_files:
+        args += ["--complication", "Complication"]
+
     # Add arguments for launch images, if there are any.
     launch_image_files = [f for f in asset_files if ".launchimage/" in f.path]
     if launch_image_files:
@@ -246,9 +251,10 @@ def compile_asset_catalog(
         if alternate_icons:
             alticons_outputs = [output_plist]
             actool_output_plist = intermediates.file(
-                actions,
-                rule_label.name,
-                "{}.noalticon.plist".format(output_plist.basename),
+                actions = actions,
+                target_name = rule_label.name,
+                output_discriminator = None,
+                file_name = "{}.noalticon.plist".format(output_plist.basename),
             )
         else:
             actool_output_plist = output_plist

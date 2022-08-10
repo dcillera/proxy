@@ -19,8 +19,7 @@
 
 // TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM defines whether or not we have an
 // implementation for the target OS and architecture.
-#if defined(__linux__) && \
-    (defined(__x86_64__) || defined(__PPC64__) || defined(__aarch64__))
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
 #define TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM 1
 #else
 #define TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM 0
@@ -61,8 +60,8 @@
 #include "tcmalloc/internal/logging.h"
 
 // TCMALLOC_PERCPU_USE_RSEQ defines whether TCMalloc support for RSEQ on the
-// target architecture exists. We currently only provide RSEQ for 64-bit x86 and
-// PPC binaries.
+// target architecture exists. We currently only provide RSEQ for 64-bit x86,
+// Arm binaries.
 #if !defined(TCMALLOC_PERCPU_USE_RSEQ)
 #if (ABSL_PER_THREAD_TLS == 1) && (TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM == 1)
 #define TCMALLOC_PERCPU_USE_RSEQ 1
@@ -71,7 +70,17 @@
 #endif
 #endif  // !defined(TCMALLOC_PERCPU_USE_RSEQ)
 
+// TCMALLOC_PERCPU_USE_RSEQ_VCPU defines whether TCMalloc support for RSEQ
+// virtual CPU IDs is available on the target architecture.
+#if TCMALLOC_PERCPU_USE_RSEQ && (defined(__x86_64__) || defined(__aarch64__))
+#define TCMALLOC_PERCPU_USE_RSEQ_VCPU 1
+#else
+#define TCMALLOC_PERCPU_USE_RSEQ_VCPU 0
+#endif  // !defined(TCMALLOC_PERCPU_USE_RSEQ_VCPU)
+
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace subtle {
 namespace percpu {
 
@@ -84,66 +93,76 @@ inline constexpr int kCpuIdInitialized = 0;
 
 #if TCMALLOC_PERCPU_USE_RSEQ
 extern "C" ABSL_PER_THREAD_TLS_KEYWORD volatile kernel_rseq __rseq_abi;
-extern "C" ABSL_PER_THREAD_TLS_KEYWORD volatile uint32_t __rseq_refcount;
-
-// This is in units of bytes.
-extern "C" size_t tcmalloc_virtual_cpu_id_offset;
 
 static inline int RseqCpuId() { return __rseq_abi.cpu_id; }
 
-static inline int VirtualRseqCpuId() {
-#ifdef __x86_64__
-  ASSERT(tcmalloc_virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id) ||
-         tcmalloc_virtual_cpu_id_offset == offsetof(kernel_rseq, vcpu_id));
-  return *reinterpret_cast<short *>(reinterpret_cast<uintptr_t>(&__rseq_abi) +
-                                    tcmalloc_virtual_cpu_id_offset);
+static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
+#if TCMALLOC_PERCPU_USE_RSEQ_VCPU
+  ASSERT(virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id) ||
+         virtual_cpu_id_offset == offsetof(kernel_rseq, vcpu_id));
+  return *reinterpret_cast<short*>(reinterpret_cast<uintptr_t>(&__rseq_abi) +
+                                   virtual_cpu_id_offset);
 #else
-  ASSERT(tcmalloc_virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id));
+  ASSERT(virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id));
   return RseqCpuId();
-#endif
+#endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
 }
 #else  // !TCMALLOC_PERCPU_USE_RSEQ
 static inline int RseqCpuId() { return kCpuIdUnsupported; }
 
-static inline int VirtualRseqCpuId() { return kCpuIdUnsupported; }
+static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
+  return kCpuIdUnsupported;
+}
 #endif
 
-typedef int (*OverflowHandler)(int cpu, size_t cl, void *item);
-typedef void *(*UnderflowHandler)(int cpu, size_t cl);
+typedef int (*OverflowHandler)(int cpu, size_t size_class, void* item,
+                               void* arg);
+typedef void* (*UnderflowHandler)(int cpu, size_t size_class, void* arg);
 
 // Functions below are implemented in the architecture-specific percpu_rseq_*.S
 // files.
 extern "C" {
-int TcmallocSlab_PerCpuCmpxchg64(int target_cpu, intptr_t *p, intptr_t old_val,
-                                 intptr_t new_val);
+int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t* p,
+                                          intptr_t old_val, intptr_t new_val);
 
-#ifndef __x86_64__
-int TcmallocSlab_Push(void *ptr, size_t cl, void *item, size_t shift,
-                      OverflowHandler f);
-int TcmallocSlab_Push_FixedShift(void *ptr, size_t cl, void *item,
-                                 OverflowHandler f);
-void *TcmallocSlab_Pop(void *ptr, size_t cl, UnderflowHandler f, size_t shift);
-void *TcmallocSlab_Pop_FixedShift(void *ptr, size_t cl, UnderflowHandler f);
-#endif  // __x86_64__
+#if !TCMALLOC_PERCPU_USE_RSEQ_VCPU
+int TcmallocSlab_Internal_Push(void* ptr, size_t size_class, void* item,
+                               size_t shift, OverflowHandler overflow_handler,
+                               void* arg);
+int TcmallocSlab_Internal_Push_FixedShift(void* ptr, size_t size_class,
+                                          void* item,
+                                          OverflowHandler overflow_handler,
+                                          void* arg);
+void* TcmallocSlab_Internal_Pop(void* ptr, size_t size_class,
+                                UnderflowHandler underflow_handler, void* arg,
+                                size_t shift);
+void* TcmallocSlab_Internal_Pop_FixedShift(void* ptr, size_t size_class,
+                                           UnderflowHandler underflow_handler,
+                                           void* arg);
+#endif  // !TCMALLOC_PERCPU_USE_RSEQ_VCPU
 
 // Push a batch for a slab which the Shift equal to
 // TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
-size_t TcmallocSlab_PushBatch_FixedShift(void *ptr, size_t cl, void **batch,
-                                         size_t len);
+size_t TcmallocSlab_Internal_PushBatch_FixedShift(void* ptr, size_t size_class,
+                                                  void** batch, size_t len);
 
 // Pop a batch for a slab which the Shift equal to
 // TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
-size_t TcmallocSlab_PopBatch_FixedShift(void *ptr, size_t cl, void **batch,
-                                        size_t len);
+size_t TcmallocSlab_Internal_PopBatch_FixedShift(void* ptr, size_t size_class,
+                                                 void** batch, size_t len);
 
-#ifdef __x86_64__
-int TcmallocSlab_PerCpuCmpxchg64_VCPU(int target_cpu, intptr_t *p,
-                                      intptr_t old_val, intptr_t new_val);
-size_t TcmallocSlab_PushBatch_FixedShift_VCPU(void *ptr, size_t cl,
-                                              void **batch, size_t len);
-size_t TcmallocSlab_PopBatch_FixedShift_VCPU(void *ptr, size_t cl, void **batch,
-                                             size_t len);
-#endif
+#if TCMALLOC_PERCPU_USE_RSEQ_VCPU
+int TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU(int target_cpu, intptr_t* p,
+                                               intptr_t old_val,
+                                               intptr_t new_val);
+size_t TcmallocSlab_Internal_PushBatch_FixedShift_VCPU(void* ptr,
+                                                       size_t size_class,
+                                                       void** batch,
+                                                       size_t len);
+size_t TcmallocSlab_Internal_PopBatch_FixedShift_VCPU(void* ptr,
+                                                      size_t size_class,
+                                                      void** batch, size_t len);
+#endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
 }
 
 // NOTE:  We skirt the usual naming convention slightly above using "_" to
@@ -154,29 +173,8 @@ size_t TcmallocSlab_PopBatch_FixedShift_VCPU(void *ptr, size_t cl, void **batch,
 bool UsingFlatVirtualCpus();
 
 inline int GetCurrentCpuUnsafe() {
-// On PowerPC, Linux maintains the current CPU in the bottom 12 bits of special
-// purpose register SPRG3, which is readable from user mode. References:
-//
-//   https://github.com/torvalds/linux/blob/164c09978cebebd8b5fc198e9243777dbaecdfa0/arch/powerpc/kernel/vdso.c#L727
-//   https://github.com/torvalds/linux/blob/dfb945473ae8528fd885607b6fa843c676745e0c/arch/powerpc/include/asm/reg.h#L966
-//   https://github.com/torvalds/linux/blob/dfb945473ae8528fd885607b6fa843c676745e0c/arch/powerpc/include/asm/reg.h#L593
-//   https://lists.ozlabs.org/pipermail/linuxppc-dev/2012-July/099011.html
-//
-// This is intended for VDSO syscalls, but is much faster if we simply inline it
-// here, presumably due to the function call and null-check overheads of the
-// VDSO version. As of 2014-07 the CPU time costs are something like 1.2 ns for
-// the inline version vs 12 ns for VDSO.
-#if defined(__PPC64__) && defined(__linux__)
-  uint64_t spr;
-
-  // Mark the asm as volatile, so that it is not hoisted out of loops.
-  asm volatile("mfspr %0, 0x103;" : "=r"(spr));
-
-  return spr & 0xfff;
-#else
-  // Elsewhere, use the rseq mechanism.
+  // Use the rseq mechanism.
   return RseqCpuId();
-#endif
 }
 
 inline int GetCurrentCpu() {
@@ -203,13 +201,15 @@ inline int GetCurrentCpu() {
   return cpu;
 }
 
-inline int GetCurrentVirtualCpuUnsafe() { return VirtualRseqCpuId(); }
+inline int GetCurrentVirtualCpuUnsafe(const size_t virtual_cpu_id_offset) {
+  return VirtualRseqCpuId(virtual_cpu_id_offset);
+}
 
-inline int GetCurrentVirtualCpu() {
+inline int GetCurrentVirtualCpu(const size_t virtual_cpu_id_offset) {
   // We can't use the unsafe version unless we have the appropriate version of
   // the rseq extension. This also allows us a convenient escape hatch if the
   // kernel changes the way it uses special-purpose registers for CPU IDs.
-  int cpu = VirtualRseqCpuId();
+  int cpu = VirtualRseqCpuId(virtual_cpu_id_offset);
 
   // We open-code the check for fast-cpu availability since we do not want to
   // force initialization in the first-call case.  This so done so that we can
@@ -220,6 +220,9 @@ inline int GetCurrentVirtualCpu() {
   if (ABSL_PREDICT_TRUE(cpu >= kCpuIdInitialized)) {
     return cpu;
   }
+
+  // Do not return a physical CPU ID when we expect a virtual CPU ID.
+  CHECK_CONDITION(virtual_cpu_id_offset != offsetof(kernel_rseq, vcpu_id));
 
 #ifdef TCMALLOC_HAVE_SCHED_GETCPU
   cpu = sched_getcpu();
@@ -270,10 +273,10 @@ inline void CompilerBarrier() {
 
 // Internal tsan annotations, do not use externally.
 // Required as tsan does not natively understand RSEQ.
-#ifdef THREAD_SANITIZER
+#ifdef ABSL_HAVE_THREAD_SANITIZER
 extern "C" {
-void __tsan_acquire(void *addr);
-void __tsan_release(void *addr);
+void __tsan_acquire(void* addr);
+void __tsan_release(void* addr);
 }
 #endif
 
@@ -281,53 +284,73 @@ void __tsan_release(void *addr);
 // get at the memory acccesses we make from RSEQ assembler sequences,
 // which means it doesn't know about the semantics our sequences
 // enforce.  So if we're under TSAN, add barrier annotations.
-inline void TSANAcquire(void *p) {
-#ifdef THREAD_SANITIZER
+inline void TSANAcquire(void* p) {
+#ifdef ABSL_HAVE_THREAD_SANITIZER
   __tsan_acquire(p);
 #endif
 }
 
-inline void TSANRelease(void *p) {
-#ifdef THREAD_SANITIZER
+inline void TSANAcquireBatch(void** batch, int n) {
+#ifdef ABSL_HAVE_THREAD_SANITIZER
+  for (int i = 0; i < n; i++) {
+    __tsan_acquire(batch[i]);
+  }
+#endif
+}
+
+inline void TSANRelease(void* p) {
+#ifdef ABSL_HAVE_THREAD_SANITIZER
   __tsan_release(p);
 #endif
 }
 
-inline void TSANMemoryBarrierOn(void *p) {
+inline void TSANReleaseBatch(void** batch, int n) {
+#ifdef ABSL_HAVE_THREAD_SANITIZER
+  for (int i = 0; i < n; i++) {
+    __tsan_release(batch[i]);
+  }
+#endif
+}
+
+inline void TSANMemoryBarrierOn(void* p) {
   TSANAcquire(p);
   TSANRelease(p);
 }
 
 // These methods may *only* be called if IsFast() has been called by the current
 // thread (and it returned true).
-inline int CompareAndSwapUnsafe(int target_cpu, std::atomic<intptr_t> *p,
-                                intptr_t old_val, intptr_t new_val) {
+inline int CompareAndSwapUnsafe(int target_cpu, std::atomic<intptr_t>* p,
+                                intptr_t old_val, intptr_t new_val,
+                                const size_t virtual_cpu_id_offset) {
   TSANMemoryBarrierOn(p);
 #if TCMALLOC_PERCPU_USE_RSEQ
-  switch (tcmalloc_virtual_cpu_id_offset) {
+  switch (virtual_cpu_id_offset) {
     case offsetof(kernel_rseq, cpu_id):
-      return TcmallocSlab_PerCpuCmpxchg64(
+      return TcmallocSlab_Internal_PerCpuCmpxchg64(
           target_cpu, tcmalloc_internal::atomic_danger::CastToIntegral(p),
           old_val, new_val);
-#ifdef __x86_64__
+#if TCMALLOC_PERCPU_USE_RSEQ_VCPU
     case offsetof(kernel_rseq, vcpu_id):
-      return TcmallocSlab_PerCpuCmpxchg64_VCPU(
+      return TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU(
           target_cpu, tcmalloc_internal::atomic_danger::CastToIntegral(p),
           old_val, new_val);
-#endif  // __x86_64__
+#endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
     default:
       __builtin_unreachable();
   }
-#else  // !TCMALLOC_PERCPU_USE_RSEQ
+#else   // !TCMALLOC_PERCPU_USE_RSEQ
   __builtin_unreachable();
 #endif  // !TCMALLOC_PERCPU_USE_RSEQ
 }
 
-void FenceCpu(int cpu);
+void FenceCpu(int cpu, const size_t virtual_cpu_id_offset);
+void FenceAllCpus();
 
 }  // namespace percpu
 }  // namespace subtle
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // !__ASSEMBLER__
 #endif  // TCMALLOC_INTERNAL_PERCPU_H_

@@ -108,7 +108,7 @@ def emit_link(
         tool_args.add("-pluginpath", archive.data.importpath)
 
     # TODO: Rework when https://github.com/bazelbuild/bazel/pull/12304 is mainstream
-    if go.mode.link == LINKMODE_C_SHARED and go.mode.goos == "darwin":
+    if go.mode.link == LINKMODE_C_SHARED and (go.mode.goos in ["darwin", "ios"]):
         extldflags.extend([
             "-install_name",
             rpath.install_name(executable),
@@ -128,21 +128,19 @@ def emit_link(
     # the bazel execroot. Most binaries are only dynamically linked against
     # system libraries though.
     cgo_rpaths = sorted(collections.uniq([
-        rpath.flag(go, d, relative_to = executable)
+        f
         for d in archive.cgo_deps.to_list()
         if has_shared_lib_extension(d.basename)
+        for f in rpath.flags(go, d, executable = executable)
     ]))
     extldflags.extend(cgo_rpaths)
 
-    # Process x_defs, either adding them directly to linker options, or
-    # saving them to process through stamping support.
+    # Process x_defs, and record whether stamping is used.
     stamp_x_defs = False
     for k, v in archive.x_defs.items():
-        if go.stamp and v.startswith("{") and v.endswith("}"):
-            builder_args.add("-Xstamp", "%s=%s" % (k, v[1:-1]))
+        if go.stamp and v.find("{") != -1 and v.find("}") != -1:
             stamp_x_defs = True
-        else:
-            builder_args.add("-X", "%s=%s" % (k, v))
+        builder_args.add("-X", "%s=%s" % (k, v))
 
     # Stamping support
     stamp_inputs = []

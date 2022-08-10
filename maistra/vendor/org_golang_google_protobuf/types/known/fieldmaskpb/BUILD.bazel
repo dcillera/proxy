@@ -21,8 +21,8 @@ alias(
 go_test(
     name = "fieldmaskpb_test",
     srcs = ["field_mask_test.go"],
-    embed = [":fieldmaskpb"],
     deps = [
+        ":fieldmaskpb",
         "//internal/testprotos/test",
         "//proto",
         "@com_github_google_go_cmp//cmp:go_default_library",

@@ -1,5 +1,4 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_binary")
-load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 
 go_binary(
     name = "adder_archive",
@@ -94,16 +93,16 @@ cc_library(
     name = "adder_sandwich_cc",
     srcs = ["add_sandwich.c"],
     hdrs = ["add_sandwich.h"],
-    alwayslink = True,
     linkstatic = True,
+    alwayslink = True,
 )
 
 go_binary(
     name = "adder_sandwich_archive",
     srcs = ["add_sandwich.go"],
+    cdeps = [":adder_sandwich_cc"],
     cgo = True,
     linkmode = "c-archive",
-    cdeps = [":adder_sandwich_cc"],
     tags = ["manual"],
 )
 
@@ -117,4 +116,24 @@ cc_test(
         "@io_bazel_rules_go//go/platform:windows": [],
         "//conditions:default": [":adder_sandwich_archive"],
     }),
+)
+
+go_binary(
+    name = "go_with_cgo_dep",
+    srcs = select({
+        "@io_bazel_rules_go//go/platform:windows": ["empty.go"],
+        "//conditions:default": ["go_with_cgo_dep.go"],
+    }),
+    cgo = True,
+    linkmode = "c-archive",
+    deps = ["@org_golang_x_sys//unix"],
+)
+
+cc_binary(
+    name = "go_with_cgo_dep_caller",
+    srcs = select({
+        "@io_bazel_rules_go//go/platform:windows": ["skip.c"],
+        "//conditions:default": ["go_with_cgo_dep_caller.cc"],
+    }),
+    deps = [":go_with_cgo_dep"],
 )

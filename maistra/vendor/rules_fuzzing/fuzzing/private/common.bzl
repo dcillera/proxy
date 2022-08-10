@@ -14,15 +14,16 @@
 
 """Common building blocks for fuzz test definitions."""
 
-load("//fuzzing/private:binary.bzl", "CcFuzzingBinaryInfo")
+load("//fuzzing/private:binary.bzl", "FuzzingBinaryInfo")
 
 def _fuzzing_launcher_script(ctx):
-    binary_info = ctx.attr.binary[CcFuzzingBinaryInfo]
+    binary_info = ctx.attr.binary[FuzzingBinaryInfo]
     script = ctx.actions.declare_file(ctx.label.name)
 
     script_template = """
 {environment}
 echo "Launching {binary_path} as a {engine_name} fuzz test..."
+RUNFILES_DIR="$0.runfiles" \
 exec "{launcher}" \
     --engine_launcher="{engine_launcher}" \
     --binary_path="{binary_path}" \
@@ -48,7 +49,7 @@ exec "{launcher}" \
 def _fuzzing_launcher_impl(ctx):
     script = _fuzzing_launcher_script(ctx)
 
-    binary_info = ctx.attr.binary[CcFuzzingBinaryInfo]
+    binary_info = ctx.attr.binary[FuzzingBinaryInfo]
     runfiles = ctx.runfiles()
     runfiles = runfiles.merge(binary_info.engine_info.launcher_runfiles)
     runfiles = runfiles.merge(ctx.attr._launcher[DefaultInfo].default_runfiles)
@@ -70,7 +71,7 @@ Rule for creating a script to run the fuzzing test.
         "binary": attr.label(
             executable = True,
             doc = "The executable of the fuzz test to run.",
-            providers = [CcFuzzingBinaryInfo],
+            providers = [FuzzingBinaryInfo],
             cfg = "target",
             mandatory = True,
         ),
@@ -79,15 +80,19 @@ Rule for creating a script to run the fuzzing test.
 )
 
 def _fuzzing_corpus_impl(ctx):
+    corpus_list_file_args = ctx.actions.args()
+    corpus_list_file_args.set_param_file_format("multiline")
+    corpus_list_file_args.use_param_file("--corpus_list_file=%s", use_always = True)
+    corpus_list_file_args.add_all(ctx.files.srcs)
+
     corpus_dir = ctx.actions.declare_directory(ctx.attr.name)
     cp_args = ctx.actions.args()
-    cp_args.add_joined("--corpus_list", ctx.files.srcs, join_with = ",")
     cp_args.add("--output_dir=" + corpus_dir.path)
 
     ctx.actions.run(
         inputs = ctx.files.srcs,
         outputs = [corpus_dir],
-        arguments = [cp_args],
+        arguments = [cp_args, corpus_list_file_args],
         executable = ctx.executable._corpus_tool,
     )
 

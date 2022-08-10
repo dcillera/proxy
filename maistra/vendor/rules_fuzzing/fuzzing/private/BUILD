@@ -24,5 +24,44 @@ exports_files([
     "engine.bzl",
     "fuzz_test.bzl",
     "instrum_opts.bzl",
+    "java_utils.bzl",
     "regression.bzl",
+    "util.bzl",
+])
+
+# Config settings needed for prebuilt engines.
+config_setting(
+    name = "use_sanitizer_none",
+    flag_values = {
+        "@rules_fuzzing//fuzzing:cc_engine_sanitizer": "none",
+    },
+)
+
+config_setting(
+    name = "use_sanitizer_asan",
+    flag_values = {
+        "@rules_fuzzing//fuzzing:cc_engine_sanitizer": "asan",
+    },
+)
+
+config_setting(
+    name = "use_sanitizer_ubsan",
+    flag_values = {
+        "@rules_fuzzing//fuzzing:cc_engine_sanitizer": "ubsan",
+    },
+)
+
+config_setting(
+    name = "use_oss_fuzz",
+    flag_values = {
+        "@rules_fuzzing//fuzzing:cc_engine": "@rules_fuzzing_oss_fuzz//:oss_fuzz_engine",
+        # This is required to make the setting an unambiguous specialization of
+        # the use_sanitizer_* settings.
+        "@rules_fuzzing//fuzzing:cc_engine_sanitizer": "none",
+    },
+)
+
+exports_files([
+    "local_jazzer_sanitizer_options.sh",
+    "oss_fuzz_jazzer_sanitizer_options.sh",
 ])

@@ -33,28 +33,26 @@ load(
     "GoSource",
 )
 load(
-    "@io_bazel_rules_go_name_hack//:def.bzl",
-    "IS_RULES_GO",
+    "//go/platform:crosstool.bzl",
+    "platform_from_crosstool",
 )
 
 def filter_transition_label(label):
     """Transforms transition labels for the current workspace.
 
-    This is a workaround for bazelbuild/bazel#10499. If a transition refers to
-    a build setting in the same workspace, for example
-    @io_bazel_rules_go//go/config:goos, it must use a label without a workspace
-    name if and only if the workspace is the main workspace.
-
-    All Go build settings and transitions are in io_bazel_rules_go. So if
-    io_bazel_rules_go is the main workspace (for development and testing),
-    go_transition must use a label like //go/config:goos. If io_bazel_rules_go
-    is not the main workspace (almost always), go_transition must use a label
-    like @io_bazel_rules_go//go/config:goos.
+    This works around bazelbuild/bazel#10499 by automatically using the correct
+    way to refer to this repository (@io_bazel_rules_go from another workspace,
+    but only repo-relative labels if this repository is the main workspace).
     """
-    if IS_RULES_GO and label.startswith("@io_bazel_rules_go"):
-        return label[len("@io_bazel_rules_go"):]
-    else:
+    if label.startswith("//command_line_option:"):
+        # This is a special prefix that allows transitions to access the values
+        # of native command-line flags. It is not a valid package, but just a
+        # syntactic prefix that is consumed by the transition logic, and thus
+        # must not be passed through the Label constructor.
+        # https://cs.opensource.google/bazel/bazel/+/master:src/main/java/com/google/devtools/build/lib/analysis/config/StarlarkDefinedConfigTransition.java;l=62;drc=463e8c80cd11d36777ddf80543aea7c53293f298
         return label
+    else:
+        return str(Label(label))
 
 def go_transition_wrapper(kind, transition_kind, name, **kwargs):
     """Wrapper for rules that may use transitions.
@@ -143,6 +141,8 @@ def _go_transition_impl(settings, attr):
 
     goos = getattr(attr, "goos", "auto")
     goarch = getattr(attr, "goarch", "auto")
+    crosstool_top = settings.pop("//command_line_option:crosstool_top")
+    cpu = settings.pop("//command_line_option:cpu")
     _check_ternary("pure", pure)
     if goos != "auto" or goarch != "auto":
         if goos == "auto":
@@ -155,6 +155,11 @@ def _go_transition_impl(settings, attr):
             fail('pure is "off" but cgo is not supported on {} {}'.format(goos, goarch))
         platform = "@io_bazel_rules_go//go/toolchain:{}_{}{}".format(goos, goarch, "_cgo" if cgo else "")
         settings["//command_line_option:platforms"] = platform
+    else:
+        # If not auto, try to detect the platform the inbound crosstool/cpu.
+        platform = platform_from_crosstool(crosstool_top, cpu)
+        if platform:
+            settings["//command_line_option:platforms"] = platform
 
     tags = getattr(attr, "gotags", [])
     if tags:
@@ -170,9 +175,33 @@ def _go_transition_impl(settings, attr):
 
     return settings
 
+def _request_nogo_transition(settings, attr):
+    """Indicates that we want the project configured nogo instead of a noop.
+
+    This does not guarantee that the project configured nogo will be used (if
+    bootstrap is true we are currently building nogo so that is a cyclic
+    dependency).
+
+    The config setting nogo_active requires bootstrap to be false and
+    request_nogo to be true to provide the project configured nogo.
+    """
+    settings = dict(settings)
+    settings[filter_transition_label("@io_bazel_rules_go//go/private:request_nogo")] = True
+    return settings
+
+request_nogo_transition = transition(
+    implementation = _request_nogo_transition,
+    inputs = [],
+    outputs = [filter_transition_label(label) for label in [
+        "@io_bazel_rules_go//go/private:request_nogo",
+    ]],
+)
+
 go_transition = transition(
     implementation = _go_transition_impl,
     inputs = [filter_transition_label(label) for label in [
+        "//command_line_option:cpu",
+        "//command_line_option:crosstool_top",
         "//command_line_option:platforms",
         "@io_bazel_rules_go//go/config:static",
         "@io_bazel_rules_go//go/config:msan",
@@ -201,6 +230,7 @@ _reset_transition_dict = {
     "@io_bazel_rules_go//go/config:debug": False,
     "@io_bazel_rules_go//go/config:linkmode": LINKMODE_NORMAL,
     "@io_bazel_rules_go//go/config:tags": [],
+    "@io_bazel_rules_go//go/private:bootstrap_nogo": True,
 }
 
 _reset_transition_keys = sorted([filter_transition_label(label) for label in _reset_transition_dict.keys()])

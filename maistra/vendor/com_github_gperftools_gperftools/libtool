@@ -1,5 +1,5 @@
 #! /bin/sh
-# Generated automatically by config.status (gperftools) 2.8
+# Generated automatically by config.status (gperftools) 2.9.1
 # NOTE: Changes made to this file will be lost: look at ltmain.sh.
 
 # Provide generalized library-building support services.
@@ -161,7 +161,7 @@ old_postuninstall_cmds=""
 lock_old_archive_extraction=no
 
 # A C compiler.
-LTCC="gcc-10"
+LTCC="gcc"
 
 # LTCC compiler flags.
 LTCFLAGS="-g -O2"
@@ -314,7 +314,7 @@ reload_cmds="\$LD\$reload_flag -o \$output\$reload_objs"
 old_archive_cmds="\$AR \$AR_FLAGS \$oldlib\$oldobjs~\$RANLIB \$tool_oldlib"
 
 # A language specific compiler.
-CC="gcc-10"
+CC="gcc"
 
 # Is the compiler the GNU compiler?
 with_gcc=yes
@@ -542,7 +542,7 @@ func_cc_basename ()
 
 PROGRAM=libtool
 PACKAGE=libtool
-VERSION="2.4.6 Debian-2.4.6-14"
+VERSION="2.4.6 Debian-2.4.6-15"
 package_revision=2.4.6
 
 
@@ -2652,7 +2652,7 @@ include the following information:
        compiler:       $LTCC
        compiler flags: $LTCFLAGS
        linker:         $LD (gnu? $with_gnu_ld)
-       version:        $progname $scriptversion Debian-2.4.6-14
+       version:        $progname $scriptversion Debian-2.4.6-15
        automake:       `($AUTOMAKE --version) 2>/dev/null |$SED 1q`
        autoconf:       `($AUTOCONF --version) 2>/dev/null |$SED 1q`
 
@@ -11774,7 +11774,7 @@ reload_cmds="\$LD\$reload_flag -o \$output\$reload_objs"
 old_archive_cmds="\$AR \$AR_FLAGS \$oldlib\$oldobjs~\$RANLIB \$tool_oldlib"
 
 # A language specific compiler.
-CC="g++-10 -std=gnu++11"
+CC="g++ -std=gnu++11"
 
 # Is the compiler the GNU compiler?
 with_gcc=yes

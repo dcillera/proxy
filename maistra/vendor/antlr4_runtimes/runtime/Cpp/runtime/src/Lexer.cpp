@@ -73,7 +73,7 @@ std::unique_ptr<Token> Lexer::nextToken() {
     tokenStartCharIndex = _input->index();
     tokenStartCharPositionInLine = getInterpreter<atn::LexerATNSimulator>()->getCharPositionInLine();
     tokenStartLine = getInterpreter<atn::LexerATNSimulator>()->getLine();
-    _text.clear();
+    _text = "";
     do {
       type = Token::INVALID_TYPE;
       size_t ttype;

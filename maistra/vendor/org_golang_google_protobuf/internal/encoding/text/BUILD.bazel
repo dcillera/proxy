@@ -32,8 +32,8 @@ go_test(
         "decode_test.go",
         "encode_test.go",
     ],
-    embed = [":text"],
     deps = [
+        ":text",
         "//internal/detrand",
         "//internal/flags",
         "@com_github_google_go_cmp//cmp:go_default_library",

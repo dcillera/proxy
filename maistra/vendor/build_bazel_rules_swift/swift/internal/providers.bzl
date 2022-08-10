@@ -14,6 +14,31 @@
 
 """Defines Starlark providers that propagated by the Swift BUILD rules."""
 
+SwiftFeatureAllowlistInfo = provider(
+    doc = """\
+Describes a set of features and the packages that are allowed to request or
+disable them.
+
+This provider is an internal implementation detail of the rules; users should
+not rely on it or assume that its structure is stable.
+""",
+    fields = {
+        "allowlist_label": """\
+A string containing the label of the `swift_feature_allowlist` target that
+created this provider.
+""",
+        "managed_features": """\
+A list of strings representing feature names or their negations that packages in
+the `packages` list are allowed to explicitly request or disable.
+""",
+        "package_specs": """\
+A list of `struct` values representing package specifications that indicate
+which packages (possibly recursive) can request or disable a feature managed by
+the allowlist.
+""",
+    },
+)
+
 SwiftInfo = provider(
     doc = """\
 Contains information about the compiled artifacts of a Swift module.
@@ -32,6 +57,30 @@ Swift and C/Objective-C) emitted by the library that propagated this provider.
 `Depset` of values returned from `swift_common.create_module`. The transitive
 modules (both Swift and C/Objective-C) emitted by the library that propagated
 this provider and all of its dependencies.
+""",
+    },
+)
+
+SwiftPackageConfigurationInfo = provider(
+    doc = """\
+Describes a compiler configuration that is applied by default to targets in a
+specific set of packages.
+
+This provider is an internal implementation detail of the rules; users should
+not rely on it or assume that its structure is stable.
+""",
+    fields = {
+        "disabled_features": """\
+`List` of strings. Features that will be disabled by default on targets in the
+packages listed in this package configuration.
+""",
+        "enabled_features": """\
+`List` of strings. Features that will be enabled by default on targets in the
+packages listed in this package configuration.
+""",
+        "package_specs": """\
+A list of `struct` values representing package specifications that indicate
+the set of packages (possibly recursive) to which this configuration is applied.
 """,
     },
 )
@@ -61,17 +110,28 @@ that use the toolchain.
         "action_configs": """\
 This field is an internal implementation detail of the build rules.
 """,
-        "all_files": """\
-A `depset` of `File`s containing all the Swift toolchain files (tools,
-libraries, and other resource files) so they can be passed as `tools` to actions
-using this toolchain.
-""",
         "cc_toolchain_info": """\
 The `cc_common.CcToolchainInfo` provider from the Bazel C++ toolchain that this
 Swift toolchain depends on.
 """,
-        "cpu": """\
-`String`. The CPU architecture that the toolchain is targeting.
+        "clang_implicit_deps_providers": """\
+A `struct` with the following fields, which represent providers from targets
+that should be added as implicit dependencies of any precompiled explicit
+C/Objective-C modules:
+
+*   `cc_infos`: A list of `CcInfo` providers from targets specified as the
+    toolchain's implicit dependencies.
+*   `objc_infos`: A list of `apple_common.Objc` providers from targets specified
+    as the toolchain's implicit dependencies.
+*   `swift_infos`: A list of `SwiftInfo` providers from targets specified as the
+    toolchain's implicit dependencies.
+
+For ease of use, this field is never `None`; it will always be a valid `struct`
+containing the fields described above, even if those lists are empty.
+""",
+        "feature_allowlists": """\
+A list of `SwiftFeatureAllowlistInfo` providers that allow or prohibit packages
+from requesting or disabling features.
 """,
         "generated_header_module_implicit_deps_providers": """\
 A `struct` with the following fields, which are providers from targets that
@@ -106,26 +166,14 @@ linking target (but not to precompiled explicit C/Objective-C modules):
 For ease of use, this field is never `None`; it will always be a valid `struct`
 containing the fields described above, even if those lists are empty.
 """,
-        "linker_opts_producer": """\
-Skylib `partial`. A partial function that returns the flags that should be
-passed to Clang to link a binary or test target with the Swift runtime
-libraries.
-
-The partial should be called with two arguments:
-
-*   `is_static`: A `Boolean` value indicating whether to link against the static
-    or dynamic runtime libraries.
-
-*   `is_test`: A `Boolean` value indicating whether the target being linked is a
-    test target.
-""",
         "linker_supports_filelist": """\
 `Boolean`. Indicates whether or not the toolchain's linker supports the input
 files passed to it via a file list.
 """,
-        "object_format": """\
-`String`. The object file format of the platform that the toolchain is
-targeting. The currently supported values are `"elf"` and `"macho"`.
+        "package_configurations": """\
+A list of `SwiftPackageConfigurationInfo` providers that specify additional
+compilation configuration options that are applied to targets on a per-package
+basis.
 """,
         "requested_features": """\
 `List` of `string`s. Features that should be implicitly enabled by default for
@@ -140,16 +188,10 @@ Swift build rules, and they are also passed to the C++ APIs used when linking
         "root_dir": """\
 `String`. The workspace-relative root directory of the toolchain.
 """,
-        "supports_objc_interop": """\
-`Boolean`. Indicates whether or not the toolchain supports Objective-C interop.
-""",
         "swift_worker": """\
 `File`. The executable representing the worker executable used to invoke the
 compiler and other Swift tools (for both incremental and non-incremental
 compiles).
-""",
-        "system_name": """\
-`String`. The name of the operating system that the toolchain is targeting.
 """,
         "test_configuration": """\
 `Struct` containing two fields:
@@ -196,10 +238,21 @@ provider.
 def create_module(*, name, clang = None, is_system = False, swift = None):
     """Creates a value containing Clang/Swift module artifacts of a dependency.
 
-    At least one of the `clang` and `swift` arguments must not be `None`. It is
-    valid for both to be present; this is the case for most Swift modules, which
-    provide both Swift module artifacts as well as a generated header/module map
-    for Objective-C targets to depend on.
+    It is possible for both `clang` and `swift` to be present; this is the case
+    for Swift modules that generate an Objective-C header, where the Swift
+    module artifacts are propagated in the `swift` context and the generated
+    header and module map are propagated in the `clang` context.
+
+    Though rare, it is also permitted for both the `clang` and `swift` arguments
+    to be `None`. One example of how this can be used is to model system
+    dependencies (like Apple SDK frameworks) that are implicitly available as
+    part of a non-hermetic SDK (Xcode) but do not propagate any artifacts of
+    their own. This would only apply in a build using implicit modules, however;
+    when using explicit modules, one would propagate the module artifacts
+    explicitly. But allowing for the empty case keeps the build graph consistent
+    if switching between the two modes is necessary, since it will not change
+    the set of transitive module names that are propagated by dependencies
+    (which other build rules may want to depend on for their own analysis).
 
     Args:
         name: The name of the module.
@@ -231,8 +284,6 @@ def create_module(*, name, clang = None, is_system = False, swift = None):
         A `struct` containing the `name`, `clang`, `is_system`, and `swift`
         fields provided as arguments.
     """
-    if clang == None and swift == None:
-        fail("Must provide at least a clang or swift module.")
     return struct(
         clang = clang,
         is_system = is_system,
@@ -247,11 +298,30 @@ def create_clang_module(
         precompiled_module = None):
     """Creates a value representing a Clang module used as a Swift dependency.
 
+    Note: The `compilation_context` argument of this function is primarily
+    intended to communicate information *to* the Swift build rules, not to
+    retrieve information *back out.* In most cases, it is better to depend on
+    the `CcInfo` provider propagated by a Swift target to collect transitive
+    C/Objective-C compilation information about that target. This is because the
+    context used when compiling the module itself may not be the same as the
+    context desired when depending on it. (For example, `apple_common.Objc`
+    supports "strict include paths" which are only propagated to direct
+    dependents.)
+
+    One valid exception to the guidance above is retrieving the generated header
+    associated with a specific Swift module. Since the `CcInfo` provider
+    propagated by the library will have already merged them transitively (or,
+    in the case of a hypothetical custom rule that propagates multiple direct
+    modules, the `direct_public_headers` of the `CcInfo` would also have them
+    merged), it is acceptable to read the headers from the compilation context
+    of the module struct itself in order to associate them with the module that
+    generated them.
+
     Args:
         compilation_context: A `CcCompilationContext` that contains the header
-            files, include paths, and other context necessary to compile targets
-            that depend on this module (if using the text module map instead of
-            the precompiled module).
+            files and other context (such as include paths, preprocessor
+            defines, and so forth) needed to compile this module as an explicit
+            module.
         module_map: The text module map file that defines this module. This
             argument may be specified as a `File` or as a `string`; in the
             latter case, it is assumed to be the path to a file that cannot
@@ -278,6 +348,7 @@ def create_swift_module(
         swiftdoc,
         swiftmodule,
         defines = [],
+        swiftsourceinfo = None,
         swiftinterface = None):
     """Creates a value representing a Swift module use as a Swift dependency.
 
@@ -287,6 +358,8 @@ def create_swift_module(
             module.
         defines: A list of defines that will be provided as `copts` to targets
             that depend on this module. If omitted, the empty list will be used.
+        swiftsourceinfo: The `.swiftsourceinfo` file emitted by the compiler for
+            this module. May be `None` if no source info file was emitted.
         swiftinterface: The `.swiftinterface` file emitted by the compiler for
             this module. May be `None` if no module interface file was emitted.
 
@@ -299,6 +372,7 @@ def create_swift_module(
         swiftdoc = swiftdoc,
         swiftinterface = swiftinterface,
         swiftmodule = swiftmodule,
+        swiftsourceinfo = swiftsourceinfo,
     )
 
 def create_swift_info(

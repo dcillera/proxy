@@ -20,20 +20,22 @@
 .\" *
 .\" **************************************************************************
 .\"
-.TH CURLOPT_HSTSREADDATA 3 "September 06, 2021" "libcurl 7.79.0" "curl_easy_setopt options"
+.TH CURLOPT_HSTSREADDATA 3 "November 26, 2021" "libcurl 7.82.0" "curl_easy_setopt options"
 
 .SH NAME
 CURLOPT_HSTSREADDATA \- pointer passed to the HSTS read callback
 .SH SYNOPSIS
+.nf
 #include <curl/curl.h>
 
 CURLcode curl_easy_setopt(CURL *handle, CURLOPT_HSTSREADDATA, void *pointer);
+.fi
 .SH DESCRIPTION
 Data \fIpointer\fP to pass to the HSTS read function. If you use the
-\fICURLOPT_HSTSREADFUNCTION(3)\fP option, this is the pointer you'll get as
+\fICURLOPT_HSTSREADFUNCTION(3)\fP option, this is the pointer you will get as
 input in the 3rd argument to the callback.
 
-This option doesn't enable HSTS, you need to use \fICURLOPT_HSTS_CTRL(3)\fP to
+This option does not enable HSTS, you need to use \fICURLOPT_HSTS_CTRL(3)\fP to
 do that.
 .SH DEFAULT
 NULL

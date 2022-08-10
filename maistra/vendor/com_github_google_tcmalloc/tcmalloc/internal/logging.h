@@ -20,10 +20,15 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include <initializer_list>
+#include <string>
+
 #include "absl/base/internal/per_thread_tls.h"
 #include "absl/base/optimization.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "tcmalloc/internal/config.h"
 
 //-------------------------------------------------------------------
 // Utility routines
@@ -36,7 +41,9 @@
 // Example:
 //   Log(kLog, __FILE__, __LINE__, "error", bytes);
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 static constexpr int kMaxStackDepth = 64;
 
@@ -56,12 +63,30 @@ struct StackTrace {
   uintptr_t requested_size;
   uintptr_t requested_alignment;
   uintptr_t allocated_size;  // size after sizeclass/page rounding
-  uintptr_t depth;           // Number of PC values stored in array below
+
+  uint8_t access_hint;
+  bool cold_allocated;
+
+  uintptr_t depth;  // Number of PC values stored in array below
   void* stack[kMaxStackDepth];
 
   // weight is the expected number of *bytes* that were requested
   // between the previous sample and this one
   size_t weight;
+
+  friend bool operator==(const StackTrace& a, const StackTrace& b) {
+    if (a.depth != b.depth || a.requested_size != b.requested_size ||
+        a.requested_alignment != b.requested_alignment ||
+        // These could theoretically differ due to e.g. memalign choices.
+        // Split the buckets just in case that happens (though it should be
+        // rare.)
+        a.allocated_size != b.allocated_size ||
+        a.access_hint != b.access_hint ||
+        a.cold_allocated != b.cold_allocated) {
+      return false;
+    }
+    return std::equal(a.stack, a.stack + a.depth, b.stack, b.stack + b.depth);
+  }
 
   template <typename H>
   friend H AbslHashValue(H h, const StackTrace& t) {
@@ -69,7 +94,8 @@ struct StackTrace {
     // produce a hasher for the fields used as keys.
     return H::combine(H::combine_contiguous(std::move(h), t.stack, t.depth),
                       t.depth, t.requested_size, t.requested_alignment,
-                      t.allocated_size);
+                      t.allocated_size,
+                      t.access_hint, t.cold_allocated);
   }
 };
 
@@ -85,6 +111,7 @@ class LogItem {
  public:
   LogItem() : tag_(kEnd) {}
   LogItem(const char* v) : tag_(kStr) { u_.str = v; }
+  LogItem(const std::string& v) : LogItem(v.c_str()) {}
   LogItem(int v) : tag_(kSigned) { u_.snum = v; }
   LogItem(long v) : tag_(kSigned) { u_.snum = v; }
   LogItem(long long v) : tag_(kSigned) { u_.snum = v; }
@@ -107,7 +134,8 @@ class LogItem {
 
 extern void Log(LogMode mode, const char* filename, int line, LogItem a,
                 LogItem b = LogItem(), LogItem c = LogItem(),
-                LogItem d = LogItem());
+                LogItem d = LogItem(), LogItem e = LogItem(),
+                LogItem f = LogItem());
 
 enum CrashMode {
   kCrash,          // Print the message and crash
@@ -116,19 +144,19 @@ enum CrashMode {
 
 ABSL_ATTRIBUTE_NORETURN
 void Crash(CrashMode mode, const char* filename, int line, LogItem a,
-           LogItem b = LogItem(), LogItem c = LogItem(), LogItem d = LogItem());
+           LogItem b = LogItem(), LogItem c = LogItem(), LogItem d = LogItem(),
+           LogItem e = LogItem(), LogItem f = LogItem());
 
 // Tests can override this function to collect logging messages.
 extern void (*log_message_writer)(const char* msg, int length);
 
-}  // namespace tcmalloc
-
 // Like assert(), but executed even in NDEBUG mode
 #undef CHECK_CONDITION
-#define CHECK_CONDITION(cond) \
-  (ABSL_PREDICT_TRUE(cond)    \
-       ? (void)0              \
-       : (::tcmalloc::Crash(::tcmalloc::kCrash, __FILE__, __LINE__, #cond)))
+#define CHECK_CONDITION(cond)                                           \
+  (ABSL_PREDICT_TRUE(cond) ? (void)0                                    \
+                           : (::tcmalloc::tcmalloc_internal::Crash(     \
+                                 ::tcmalloc::tcmalloc_internal::kCrash, \
+                                 __FILE__, __LINE__, #cond)))
 
 // Our own version of assert() so we can avoid hanging by trying to do
 // all kinds of goofy printing while holding the malloc lock.
@@ -138,35 +166,17 @@ extern void (*log_message_writer)(const char* msg, int length);
 #define ASSERT(cond) ((void)0)
 #endif
 
-// Our wrapper for __builtin_assume, allowing us to check the assumption on
-// debug builds.
-#ifndef NDEBUG
-#ifdef __clang__
-#define ASSUME(cond) CHECK_CONDITION(cond), __builtin_assume(cond)
-#else
-#define ASSUME(cond) \
-  CHECK_CONDITION(cond), (!(cond) ? __builtin_unreachable() : (void)0)
-#endif
-#else
-#ifdef __clang__
-#define ASSUME(cond) __builtin_assume(cond)
-#else
-#define ASSUME(cond) (!(cond) ? __builtin_unreachable() : (void)0)
-#endif
-#endif
-
 // Print into buffer
-class TCMalloc_Printer {
+class Printer {
  private:
   char* buf_;     // Where should we write next
-  int left_;      // Space left in buffer (including space for \0)
-  int required_;  // Space we needed to complete all printf calls up to this
-                  // point
+  size_t left_;   // Space left in buffer (including space for \0)
+  size_t required_;  // Space we needed to complete all printf calls up to this
+                     // point
 
  public:
   // REQUIRES: "length > 0"
-  TCMalloc_Printer(char* buf, int length)
-      : buf_(buf), left_(length), required_(0) {
+  Printer(char* buf, size_t length) : buf_(buf), left_(length), required_(0) {
     ASSERT(length > 0);
     buf[0] = '\0';
   }
@@ -193,7 +203,42 @@ class TCMalloc_Printer {
     }
   }
 
-  int SpaceRequired() const { return required_; }
+  template <typename... Args>
+  void Append(const Args&... args) {
+
+    AppendPieces({static_cast<const absl::AlphaNum&>(args).Piece()...});
+  }
+
+  size_t SpaceRequired() const { return required_; }
+
+ private:
+  void AppendPieces(std::initializer_list<absl::string_view> pieces) {
+    ASSERT(left_ >= 0);
+    if (left_ <= 0) {
+      return;
+    }
+
+    size_t total_size = 0;
+    for (const absl::string_view piece : pieces) total_size += piece.size();
+
+    required_ += total_size;
+    if (left_ < total_size) {
+      left_ = 0;
+      return;
+    }
+
+    for (const absl::string_view& piece : pieces) {
+      const size_t this_size = piece.size();
+      if (this_size == 0) {
+        continue;
+      }
+
+      memcpy(buf_, piece.data(), this_size);
+      buf_ += this_size;
+    }
+
+    left_ -= total_size;
+  }
 };
 
 enum PbtxtRegionType { kTop, kNested };
@@ -203,14 +248,13 @@ enum PbtxtRegionType { kTop, kNested };
 // brackets).
 class PbtxtRegion {
  public:
-  PbtxtRegion(TCMalloc_Printer* out, PbtxtRegionType type, int indent);
+  PbtxtRegion(Printer* out, PbtxtRegionType type);
   ~PbtxtRegion();
 
   PbtxtRegion(const PbtxtRegion&) = delete;
   PbtxtRegion(PbtxtRegion&&) = default;
 
   // Prints 'key: value'.
-  void PrintU64(absl::string_view key, uint64_t value);
   void PrintI64(absl::string_view key, int64_t value);
   void PrintDouble(absl::string_view key, double value);
   void PrintBool(absl::string_view key, bool value);
@@ -221,11 +265,12 @@ class PbtxtRegion {
   PbtxtRegion CreateSubRegion(absl::string_view key);
 
  private:
-  void NewLineAndIndent();
-
-  TCMalloc_Printer* out_;
+  Printer* out_;
   PbtxtRegionType type_;
-  int indent_;
 };
+
+}  // namespace tcmalloc_internal
+}  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_INTERNAL_LOGGING_H_

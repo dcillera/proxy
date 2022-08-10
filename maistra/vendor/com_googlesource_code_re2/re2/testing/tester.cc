@@ -86,6 +86,20 @@ static uint32_t Engines() {
 
 // The result of running a match.
 struct TestInstance::Result {
+  Result()
+      : skipped(false),
+        matched(false),
+        untrusted(false),
+        have_submatch(false),
+        have_submatch0(false) {
+    ClearSubmatch();
+  }
+
+  void ClearSubmatch() {
+    for (int i = 0; i < kMaxSubmatch; i++)
+      submatch[i] = StringPiece();
+  }
+
   bool skipped;         // test skipped: wasn't applicable
   bool matched;         // found a match
   bool untrusted;       // don't really trust the answer
@@ -103,8 +117,8 @@ static std::string FormatCapture(const StringPiece& text,
   if (s.data() == NULL)
     return "(?,?)";
   return StringPrintf("(%td,%td)",
-                      s.begin() - text.begin(),
-                      s.end() - text.begin());
+                      BeginPtr(s) - BeginPtr(text),
+                      EndPtr(s) - BeginPtr(text));
 }
 
 // Returns whether text contains non-ASCII (>= 0x80) bytes.
@@ -292,9 +306,6 @@ void TestInstance::RunSearch(Engine type,
                              const StringPiece& orig_context,
                              Prog::Anchor anchor,
                              Result* result) {
-  // Result is not trivial, so we cannot freely clear it with memset(3),
-  // but zeroing objects like so is safe and expedient for our purposes.
-  memset(reinterpret_cast<void*>(result), 0, sizeof *result);
   if (regexp_ == NULL) {
     result->skipped = true;
     return;
@@ -392,7 +403,7 @@ void TestInstance::RunSearch(Engine type,
     case kEngineRE2:
     case kEngineRE2a:
     case kEngineRE2b: {
-      if (!re2_ || text.end() != context.end()) {
+      if (!re2_ || EndPtr(text) != EndPtr(context)) {
         result->skipped = true;
         break;
       }
@@ -407,8 +418,8 @@ void TestInstance::RunSearch(Engine type,
 
       result->matched = re2_->Match(
           context,
-          static_cast<size_t>(text.begin() - context.begin()),
-          static_cast<size_t>(text.end() - context.begin()),
+          static_cast<size_t>(BeginPtr(text) - BeginPtr(context)),
+          static_cast<size_t>(EndPtr(text) - BeginPtr(context)),
           re_anchor,
           result->submatch,
           nsubmatch);
@@ -417,8 +428,8 @@ void TestInstance::RunSearch(Engine type,
     }
 
     case kEnginePCRE: {
-      if (!re_ || text.begin() != context.begin() ||
-          text.end() != context.end()) {
+      if (!re_ || BeginPtr(text) != BeginPtr(context) ||
+          EndPtr(text) != EndPtr(context)) {
         result->skipped = true;
         break;
       }
@@ -478,7 +489,7 @@ void TestInstance::RunSearch(Engine type,
   }
 
   if (!result->matched)
-    memset(result->submatch, 0, sizeof result->submatch);
+    result->ClearSubmatch();
 }
 
 // Checks whether r is okay given that correct is the right answer.
@@ -595,9 +606,9 @@ void TestInstance::LogMatch(const char* prefix, Engine e,
     << " text "
     << CEscape(text)
     << " ("
-    << text.begin() - context.begin()
+    << BeginPtr(text) - BeginPtr(context)
     << ","
-    << text.end() - context.begin()
+    << EndPtr(text) - BeginPtr(context)
     << ") of context "
     << CEscape(context)
     << " (" << FormatKind(kind_)

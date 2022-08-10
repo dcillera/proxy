@@ -31,7 +31,28 @@ variants = [
         "name": "256k_pages",
         "malloc": "//tcmalloc:tcmalloc_256k_pages",
         "deps": ["//tcmalloc:common_256k_pages"],
-        "copts": ["-DTCMALLOC_256K_PAGES"],
+        "copts": [
+            "-DTCMALLOC_256K_PAGES",
+        ],
+    },
+    {
+        "name": "256k_pages_and_numa_disabled",
+        "malloc": "//tcmalloc:tcmalloc_256k_pages_and_numa",
+        "deps": ["//tcmalloc:common_256k_pages_and_numa"],
+        "copts": [
+            "-DTCMALLOC_256K_PAGES",
+            "-DTCMALLOC_NUMA_AWARE",
+        ],
+    },
+    {
+        "name": "256k_pages_and_numa_enabled",
+        "malloc": "//tcmalloc:tcmalloc_256k_pages_and_numa",
+        "deps": ["//tcmalloc:common_256k_pages_and_numa"],
+        "copts": [
+            "-DTCMALLOC_256K_PAGES",
+            "-DTCMALLOC_NUMA_AWARE",
+        ],
+        "env": {"TCMALLOC_NUMA_AWARE": "1"},
     },
     {
         "name": "small_but_slow",
@@ -40,15 +61,92 @@ variants = [
         "copts": ["-DTCMALLOC_SMALL_BUT_SLOW"],
     },
     {
-        "name": "legacy_spans",
+        "name": "8k_pages_not_hotcold",
         "malloc": "//tcmalloc",
-        "deps": [
-            "//tcmalloc:common",
-            "//tcmalloc:want_legacy_spans",
-        ],
+        "deps": ["//tcmalloc:common"],
         "copts": [],
+        "env": {"TCMALLOC_HOTCOLD_CONTROL": "0"},
+    },
+    {
+        "name": "256k_pages_pow2",
+        "malloc": "//tcmalloc:tcmalloc_256k_pages",
+        "deps": ["//tcmalloc:common_256k_pages"],
+        "copts": ["-DTCMALLOC_256K_PAGES"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_POW2_SIZECLASS"},
+    },
+    {
+        "name": "256k_pages_pow2_sharded_transfer_cache",
+        "malloc": "//tcmalloc:tcmalloc_256k_pages",
+        "deps": ["//tcmalloc:common_256k_pages"],
+        "copts": ["-DTCMALLOC_256K_PAGES"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE"},
+    },
+    {
+        "name": "256k_pages_pow2_below64",
+        "malloc": "//tcmalloc:tcmalloc_256k_pages",
+        "deps": ["//tcmalloc:common_256k_pages"],
+        "copts": ["-DTCMALLOC_256K_PAGES"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_POW2_BELOW64_SIZECLASS"},
+    },
+    {
+        "name": "numa_aware",
+        "malloc": "//tcmalloc:tcmalloc_numa_aware",
+        "deps": [
+            "//tcmalloc:common_numa_aware",
+            "//tcmalloc:want_numa_aware",
+        ],
+        "copts": ["-DTCMALLOC_NUMA_AWARE"],
+    },
+    {
+        "name": "ring_buffer_transfer_cache",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_RING_BUFFER_TRANSFER_CACHE"},
+    },
+    {
+        "name": "256k_pages_pow2_with_per_ccx",
+        "malloc": "//tcmalloc:tcmalloc_256k_pages",
+        "deps": ["//tcmalloc:common_256k_pages"],
+        "copts": ["-DTCMALLOC_256K_PAGES"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_POW2_SIZECLASS"},
     },
 ]
+
+def create_tcmalloc_variant_targets(create_one, name, srcs, **kwargs):
+    """ Invokes create_one once per TCMalloc variant
+
+    Args:
+      create_one: A function invoked once per variant with arguments
+        matching those of a cc_binary or cc_test target.
+      name: The base name, suffixed with variant names to form target names.
+      srcs: Source files to be built.
+      **kwargs: Other arguments passed through to create_one.
+
+    Returns:
+      A list of the targets generated; i.e. each name passed to create_one.
+    """
+    copts = kwargs.pop("copts", [])
+    deps = kwargs.pop("deps", [])
+    linkopts = kwargs.pop("linkopts", [])
+
+    variant_targets = []
+    for variant in variants:
+        inner_target_name = name + "_" + variant["name"]
+        variant_targets.append(inner_target_name)
+        env = kwargs.pop("env", {})
+        env.update(variant.get("env", {}))
+        create_one(
+            inner_target_name,
+            copts = copts + variant.get("copts", []),
+            linkopts = linkopts + variant.get("linkopts", []),
+            malloc = variant.get("malloc"),
+            srcs = srcs,
+            deps = deps + variant.get("deps", []),
+            env = env,
+            **kwargs
+        )
+
+    return variant_targets
 
 # Declare an individual test.
 def create_tcmalloc_test(
@@ -71,22 +169,42 @@ def create_tcmalloc_test(
 
 # Create test_suite of name containing tests variants.
 def create_tcmalloc_testsuite(name, srcs, **kwargs):
-    copts = kwargs.pop("copts", [])
-    deps = kwargs.pop("deps", [])
-    linkopts = kwargs.pop("linkopts", [])
+    variant_targets = create_tcmalloc_variant_targets(
+        create_tcmalloc_test,
+        name,
+        srcs,
+        **kwargs
+    )
+    native.test_suite(name = name, tests = variant_targets)
 
-    test_suite_targets = []
-    for variant in variants:
-        inner_test_suite_name = name + "_" + variant["name"]
-        test_suite_targets.append(inner_test_suite_name)
-        create_tcmalloc_test(
-            inner_test_suite_name,
-            copts = copts + variant.get("copts", []),
-            linkopts = linkopts + variant.get("linkopts", []),
-            malloc = variant.get("malloc"),
-            srcs = srcs,
-            deps = deps + variant.get("deps", []),
-            **kwargs
-        )
+# Declare a single benchmark binary.
+def create_tcmalloc_benchmark(name, srcs, **kwargs):
+    deps = kwargs.pop("deps")
+    malloc = kwargs.pop("malloc", "//tcmalloc")
 
-    native.test_suite(name = name, tests = test_suite_targets)
+    native.cc_binary(
+        name = name,
+        srcs = srcs,
+        malloc = malloc,
+        testonly = 1,
+        linkstatic = 1,
+        deps = deps + ["//tcmalloc/testing:benchmark_main"],
+        **kwargs
+    )
+
+# Declare a suite of benchmark binaries, one per variant.
+def create_tcmalloc_benchmark_suite(name, srcs, **kwargs):
+    variant_targets = create_tcmalloc_variant_targets(
+        create_tcmalloc_benchmark,
+        name,
+        srcs,
+        **kwargs
+    )
+
+    # The first 'variant' is the default 8k_pages configuration. We alias the
+    # benchmark name without a suffix to that target so that the default
+    # configuration can be invoked without a variant suffix.
+    native.alias(
+        name = name,
+        actual = variant_targets[0],
+    )

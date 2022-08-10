@@ -18,6 +18,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	pref "google.golang.org/protobuf/reflect/protoreflect"
 
+	"google.golang.org/protobuf/internal/errors"
 	orderpb "google.golang.org/protobuf/internal/testprotos/order"
 	testpb "google.golang.org/protobuf/internal/testprotos/test"
 	test3pb "google.golang.org/protobuf/internal/testprotos/test3"
@@ -136,6 +137,9 @@ func TestEncodeInvalidMessages(t *testing.T) {
 				if err == nil {
 					t.Fatalf("Marshal unexpectedly succeeded\noutput bytes: [%x]\nMessage:\n%v", got, prototext.Format(m))
 				}
+				if !errors.Is(err, proto.Error) {
+					t.Fatalf("Marshal error is not a proto.Error: %v", err)
+				}
 			})
 		}
 	}
@@ -227,7 +231,7 @@ func TestEncodeOrder(t *testing.T) {
 func TestEncodeLarge(t *testing.T) {
 	// Encode/decode a message large enough to overflow a 32-bit size cache.
 	t.Skip("too slow and memory-hungry to run all the time")
-	size := math.MaxUint32 + 1
+	size := int64(math.MaxUint32 + 1)
 	m := &testpb.TestAllTypes_NestedMessage{
 		Corecursive: &testpb.TestAllTypes{
 			OptionalBytes: make([]byte, size),
@@ -243,7 +247,7 @@ func TestEncodeLarge(t *testing.T) {
 	if err := proto.Unmarshal(b, m); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if got, want := len(m.Corecursive.OptionalBytes), size; got != want {
+	if got, want := int64(len(m.Corecursive.OptionalBytes)), size; got != want {
 		t.Errorf("after round-trip marshal, got len(m.OptionalBytes) = %v, want %v", got, want)
 	}
 }

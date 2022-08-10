@@ -39,6 +39,7 @@
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
 
 class PageAllocatorTest : public testing::Test {
@@ -53,7 +54,7 @@ class PageAllocatorTest : public testing::Test {
     before_ = MallocExtension::GetRegionFactory();
     extra_ = new ExtraRegionFactory(before_);
     MallocExtension::SetRegionFactory(extra_);
-    void *p = malloc(sizeof(PageAllocator));
+    void* p = malloc(sizeof(PageAllocator));
     allocator_ = new (p) PageAllocator;
   }
   void TearDown() override {
@@ -62,11 +63,11 @@ class PageAllocatorTest : public testing::Test {
     free(allocator_);
   }
 
-  Span *New(Length n) { return allocator_->New(n, MemoryTag::kNormal); }
-  Span *NewAligned(Length n, Length align) {
+  Span* New(Length n) { return allocator_->New(n, MemoryTag::kNormal); }
+  Span* NewAligned(Length n, Length align) {
     return allocator_->NewAligned(n, align, MemoryTag::kNormal);
   }
-  void Delete(Span *s) {
+  void Delete(Span* s) {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     allocator_->Delete(s, MemoryTag::kNormal);
   }
@@ -78,15 +79,15 @@ class PageAllocatorTest : public testing::Test {
 
   std::string Print() {
     std::vector<char> buf(1024 * 1024);
-    TCMalloc_Printer out(&buf[0], buf.size());
+    Printer out(&buf[0], buf.size());
     allocator_->Print(&out, MemoryTag::kNormal);
 
     return std::string(&buf[0]);
   }
 
-  PageAllocator *allocator_;
-  ExtraRegionFactory *extra_;
-  AddressRegionFactory *before_;
+  PageAllocator* allocator_;
+  ExtraRegionFactory* extra_;
+  AddressRegionFactory* before_;
 };
 
 // We've already tested in stats_test that PageAllocInfo keeps good stats;
@@ -96,7 +97,7 @@ TEST_F(PageAllocatorTest, Record) {
     Delete(New(Length(1)));
   }
 
-  std::vector<Span *> spans;
+  std::vector<Span*> spans;
   for (int i = 0; i < 20; ++i) {
     spans.push_back(New(Length(2)));
   }
@@ -140,4 +141,5 @@ TEST_F(PageAllocatorTest, PrintIt) {
 }
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

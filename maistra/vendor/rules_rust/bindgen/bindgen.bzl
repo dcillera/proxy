@@ -13,10 +13,13 @@
 # limitations under the License.
 
 # buildifier: disable=module-docstring
-load("//rust:rust.bzl", "rust_library")
+load("//rust:defs.bzl", "rust_library")
 
 # buildifier: disable=bzl-visibility
-load("//rust/private:utils.bzl", "find_toolchain", "get_preferred_artifact")
+load("//rust/private:rustc.bzl", "get_linker_and_args")
+
+# buildifier: disable=bzl-visibility
+load("//rust/private:utils.bzl", "find_cc_toolchain", "find_toolchain", "get_preferred_artifact")
 
 # TODO(hlopko): use the more robust logic from rustc.bzl also here, through a reasonable API.
 def _get_libs_for_static_executable(dep):
@@ -29,7 +32,7 @@ def _get_libs_for_static_executable(dep):
         depset: A depset[File]
     """
     linker_inputs = dep[CcInfo].linking_context.linker_inputs.to_list()
-    return depset([get_preferred_artifact(lib) for li in linker_inputs for lib in li.libraries])
+    return depset([get_preferred_artifact(lib, use_pic = False) for li in linker_inputs for lib in li.libraries])
 
 def rust_bindgen_library(
         name,
@@ -37,6 +40,7 @@ def rust_bindgen_library(
         cc_lib,
         bindgen_flags = None,
         clang_flags = None,
+        rustfmt = True,
         **kwargs):
     """Generates a rust source file for `header`, and builds a rust_library.
 
@@ -48,6 +52,7 @@ def rust_bindgen_library(
         cc_lib (str): The label of the cc_library that contains the .h file. This is used to find the transitive includes.
         bindgen_flags (list, optional): Flags to pass directly to the bindgen executable. See https://rust-lang.github.io/rust-bindgen/ for details.
         clang_flags (list, optional): Flags to pass directly to the clang executable.
+        rustfmt (bool, optional): Enable or disable running rustfmt on the generated file.
         **kwargs: Arguments to forward to the underlying `rust_library` rule.
     """
 
@@ -55,12 +60,17 @@ def rust_bindgen_library(
     if "tags" in kwargs:
         kwargs.pop("tags")
 
+    deps = kwargs.get("deps") or []
+    if "deps" in kwargs:
+        kwargs.pop("deps")
+
     rust_bindgen(
         name = name + "__bindgen",
         header = header,
         cc_lib = cc_lib,
         bindgen_flags = bindgen_flags or [],
         clang_flags = clang_flags or [],
+        rustfmt = rustfmt,
         tags = tags,
     )
 
@@ -68,7 +78,7 @@ def rust_bindgen_library(
         name = name,
         srcs = [name + "__bindgen.rs"],
         tags = tags + ["__bindgen"],
-        deps = [cc_lib],
+        deps = deps + [cc_lib],
         **kwargs
     )
 
@@ -87,13 +97,6 @@ def _rust_bindgen_impl(ctx):
     rustfmt_bin = toolchain.rustfmt or rust_toolchain.rustfmt
     clang_bin = toolchain.clang
     libclang = toolchain.libclang
-
-    # TODO: This rule shouldn't need to depend on libstdc++
-    #  This rule requires an explicit dependency on a libstdc++ because
-    #    1. It is a runtime dependency of libclang.so
-    #    2. We cannot locate it in the cc_toolchain yet
-    #  Depending on how libclang.so was compiled, it may try to locate its libstdc++ dependency
-    #  in a way that makes our handling here unnecessary (eg. system /usr/lib/x86_64-linux-gnu/libstdc++.so.6)
     libstdcxx = toolchain.libstdcxx
 
     # rustfmt is not where bindgen expects to find it, so we format manually
@@ -109,7 +112,7 @@ def _rust_bindgen_impl(ctx):
     system_include_directories = cc_lib[CcInfo].compilation_context.system_includes.to_list()
 
     # Vanilla usage of bindgen produces formatted output, here we do the same if we have `rustfmt` in our toolchain.
-    if rustfmt_bin:
+    if ctx.attr.rustfmt and rustfmt_bin:
         unformatted_output = ctx.actions.declare_file(output.basename + ".unformatted")
     else:
         unformatted_output = output
@@ -129,9 +132,15 @@ def _rust_bindgen_impl(ctx):
         "LIBCLANG_PATH": libclang_dir,
         "RUST_BACKTRACE": "1",
     }
+    cc_toolchain, feature_configuration = find_cc_toolchain(ctx)
+    _, _, linker_env = get_linker_and_args(ctx, ctx.attr, cc_toolchain, feature_configuration, None)
+    env.update(**linker_env)
 
+    # Set the dynamic linker search path so that clang uses the libstdcxx from the toolchain.
+    # DYLD_LIBRARY_PATH is LD_LIBRARY_PATH on macOS.
     if libstdcxx:
         env["LD_LIBRARY_PATH"] = ":".join([f.dirname for f in _get_libs_for_static_executable(libstdcxx).to_list()])
+        env["DYLD_LIBRARY_PATH"] = env["LD_LIBRARY_PATH"]
 
     ctx.actions.run(
         executable = bindgen_bin,
@@ -140,9 +149,9 @@ def _rust_bindgen_impl(ctx):
             transitive = [
                 cc_lib[CcInfo].compilation_context.headers,
                 _get_libs_for_static_executable(libclang),
-            ] + [
+            ] + ([
                 _get_libs_for_static_executable(libstdcxx),
-            ] if libstdcxx else [],
+            ] if libstdcxx else []),
         ),
         outputs = [unformatted_output],
         mnemonic = "RustBindgen",
@@ -152,7 +161,7 @@ def _rust_bindgen_impl(ctx):
         tools = [clang_bin],
     )
 
-    if rustfmt_bin:
+    if ctx.attr.rustfmt and rustfmt_bin:
         rustfmt_args = ctx.actions.args()
         rustfmt_args.add("--stdout-file", output.path)
         rustfmt_args.add("--")
@@ -188,6 +197,13 @@ rust_bindgen = rule(
             doc = "The .h file to generate bindings for.",
             allow_single_file = True,
         ),
+        "rustfmt": attr.bool(
+            doc = "Enable or disable running rustfmt on the generated file.",
+            default = True,
+        ),
+        "_cc_toolchain": attr.label(
+            default = Label("@bazel_tools//tools/cpp:current_cc_toolchain"),
+        ),
         "_process_wrapper": attr.label(
             default = Label("//util/process_wrapper"),
             executable = True,
@@ -196,9 +212,11 @@ rust_bindgen = rule(
         ),
     },
     outputs = {"out": "%{name}.rs"},
+    fragments = ["cpp"],
     toolchains = [
         str(Label("//bindgen:bindgen_toolchain")),
         str(Label("//rust:toolchain")),
+        "@bazel_tools//tools/cpp:toolchain_type",
     ],
     incompatible_use_toolchain_transition = True,
 )
@@ -232,12 +250,13 @@ rust_bindgen_toolchain = rule(
             providers = [CcInfo],
         ),
         "libstdcxx": attr.label(
-            doc = "A cc_library that satisfies libclang's libstdc++ dependency.",
+            doc = "A cc_library that satisfies libclang's libstdc++ dependency. This is used to make the execution of clang hermetic. If None, system libraries will be used instead.",
             cfg = "exec",
             providers = [CcInfo],
+            mandatory = False,
         ),
         "rustfmt": attr.label(
-            doc = "The label of a `rustfmt` executable. If this is provided, generated sources will be formatted.",
+            doc = "The label of a `rustfmt` executable. If this is not provided, falls back to the rust_toolchain rustfmt.",
             executable = True,
             cfg = "exec",
             mandatory = False,

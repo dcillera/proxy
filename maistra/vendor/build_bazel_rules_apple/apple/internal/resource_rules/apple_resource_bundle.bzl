@@ -19,7 +19,7 @@ load(
     "AppleResourceBundleInfo",
 )
 
-def _apple_resource_bundle_impl(ctx):
+def _apple_resource_bundle_impl(_ctx):
     # All of the resource processing logic for this rule exists in the apple_resource_aspect.
     #
     # To transform the attributes referenced by this rule into resource providers, that aspect must
@@ -33,6 +33,12 @@ def _apple_resource_bundle_impl(ctx):
 apple_resource_bundle = rule(
     implementation = _apple_resource_bundle_impl,
     attrs = {
+        "bundle_id": attr.string(
+            doc = """
+The bundle ID for this target. It will replace `$(PRODUCT_BUNDLE_IDENTIFIER)` found in the files
+from defined in the `infoplists` paramter.
+""",
+        ),
         "bundle_name": attr.string(
             doc = """
 The desired name of the bundle (without the `.bundle` extension). If this attribute is not set,

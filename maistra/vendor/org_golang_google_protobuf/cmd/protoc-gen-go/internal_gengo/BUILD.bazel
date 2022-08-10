@@ -13,7 +13,6 @@ go_library(
     deps = [
         "//compiler/protogen",
         "//encoding/protowire",
-        "//internal/encoding/messageset",
         "//internal/encoding/tag",
         "//internal/genid",
         "//internal/version",

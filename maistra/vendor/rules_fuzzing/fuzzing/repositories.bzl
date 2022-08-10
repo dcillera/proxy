@@ -18,14 +18,26 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load("@bazel_tools//tools/build_defs/repo:utils.bzl", "maybe")
 load("//fuzzing/private/oss_fuzz:repository.bzl", "oss_fuzz_repository")
 
-def rules_fuzzing_dependencies(oss_fuzz = True, honggfuzz = True):
+def rules_fuzzing_dependencies(oss_fuzz = True, honggfuzz = True, jazzer = False):
     """Instantiates the dependencies of the fuzzing rules.
 
     Args:
       oss_fuzz: Include OSS-Fuzz dependencies.
       honggfuzz: Include Honggfuzz dependencies.
+      jazzer: Include Jazzer repository. Instantiating all Jazzer dependencies
+        additionally requires invoking jazzer_dependencies() in
+        @jazzer//:repositories.bzl and jazzer_init() in @jazzer//:init.bzl.
     """
 
+    maybe(
+        http_archive,
+        name = "platforms",
+        urls = [
+            "https://mirror.bazel.build/github.com/bazelbuild/platforms/releases/download/0.0.4/platforms-0.0.4.tar.gz",
+            "https://github.com/bazelbuild/platforms/releases/download/0.0.4/platforms-0.0.4.tar.gz",
+        ],
+        sha256 = "079945598e4b6cc075846f7fd6a9d0857c33a7afc0de868c2ccb96405225135d",
+    )
     maybe(
         http_archive,
         name = "rules_python",
@@ -44,9 +56,9 @@ def rules_fuzzing_dependencies(oss_fuzz = True, honggfuzz = True):
     maybe(
         http_archive,
         name = "com_google_absl",
-        urls = ["https://github.com/abseil/abseil-cpp/archive/4611a601a7ce8d5aad169417092e3d5027aa8403.zip"],
-        strip_prefix = "abseil-cpp-4611a601a7ce8d5aad169417092e3d5027aa8403",
-        sha256 = "f4f2d3d01c3cc99eebc9f370ea626c43a54b386913aef393bf8201b2c42a9e2f",
+        urls = ["https://github.com/abseil/abseil-cpp/archive/f2dbd918d8d08529800eb72f23bd2829f92104a4.zip"],
+        strip_prefix = "abseil-cpp-f2dbd918d8d08529800eb72f23bd2829f92104a4",
+        sha256 = "5e1cbf25bf501f8e37866000a6052d02dbdd7b19a5b592251c59a4c9aa5c71ae",
     )
 
     if oss_fuzz:
@@ -63,4 +75,13 @@ def rules_fuzzing_dependencies(oss_fuzz = True, honggfuzz = True):
             sha256 = "a6f8040ea62e0f630737f66dce46fb1b86140f118957cb5e3754a764de7a770a",
             url = "https://github.com/google/honggfuzz/archive/e0670137531242d66c9cf8a6dee677c055a8aacb.zip",
             strip_prefix = "honggfuzz-e0670137531242d66c9cf8a6dee677c055a8aacb",
+        )
+
+    if jazzer:
+        maybe(
+            http_archive,
+            name = "jazzer",
+            sha256 = "c55889c235501498ca7436f57974ea59f0dc43e9effd64e13ce0c535265b8224",
+            strip_prefix = "jazzer-4434041f088365acf2a561e678bf9d61a7aa5dff",
+            url = "https://github.com/CodeIntelligenceTesting/jazzer/archive/4434041f088365acf2a561e678bf9d61a7aa5dff.zip",
         )

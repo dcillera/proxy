@@ -63,6 +63,10 @@ load(
     "@bazel_skylib//rules:common_settings.bzl",
     "BuildSettingInfo",
 )
+load(
+    "//go/private/rules:transition.bzl",
+    "request_nogo_transition",
+)
 
 _COMPILER_OPTIONS_BLACKLIST = {
     # cgo parses the error messages from the compiler.  It can't handle colors.
@@ -226,14 +230,14 @@ def _library_to_source(go, attr, library, coverage_instrumented):
         "embedsrcs": embedsrcs,
         "x_defs": {},
         "deps": getattr(attr, "deps", []),
-        "gc_goopts": getattr(attr, "gc_goopts", []),
+        "gc_goopts": _expand_opts(go, "gc_goopts", getattr(attr, "gc_goopts", [])),
         "runfiles": _collect_runfiles(go, getattr(attr, "data", []), getattr(attr, "deps", [])),
         "cgo": getattr(attr, "cgo", False),
         "cdeps": getattr(attr, "cdeps", []),
-        "cppopts": getattr(attr, "cppopts", []),
-        "copts": getattr(attr, "copts", []),
-        "cxxopts": getattr(attr, "cxxopts", []),
-        "clinkopts": getattr(attr, "clinkopts", []),
+        "cppopts": _expand_opts(go, "cppopts", getattr(attr, "cppopts", [])),
+        "copts": _expand_opts(go, "copts", getattr(attr, "copts", [])),
+        "cxxopts": _expand_opts(go, "cxxopts", getattr(attr, "cxxopts", [])),
+        "clinkopts": _expand_opts(go, "clinkopts", getattr(attr, "clinkopts", [])),
         "cgo_deps": [],
         "cgo_exports": [],
     }
@@ -346,7 +350,8 @@ def _infer_importpath(ctx):
 def go_context(ctx, attr = None):
     """Returns an API used to build Go code.
 
-    See /go/toolchains.rst#go-context"""
+    See /go/toolchains.rst#go-context
+    """
     if not attr:
         attr = ctx.attr
     toolchain = ctx.toolchains["@io_bazel_rules_go//go:toolchain"]
@@ -535,10 +540,14 @@ go_context_data = rule(
             mandatory = True,
             providers = [GoStdLib],
         ),
+        "_whitelist_function_transition": attr.label(
+            default = "@bazel_tools//tools/whitelists/function_transition_whitelist",
+        ),
     },
     doc = """go_context_data gathers information about the build configuration.
     It is a common dependency of all Go targets.""",
     toolchains = ["@io_bazel_rules_go//go:toolchain"],
+    cfg = request_nogo_transition,
 )
 
 def _cgo_context_data_impl(ctx):
@@ -647,7 +656,7 @@ def _cgo_context_data_impl(ctx):
             feature_configuration = feature_configuration,
             action_name = CPP_LINK_EXECUTABLE_ACTION_NAME,
             variables = ld_executable_variables,
-        ),
+        ) + ctx.fragments.cpp.linkopts,
         _LINKER_OPTIONS_BLACKLIST,
     )
     env.update(cc_common.get_environment_variables(
@@ -688,9 +697,10 @@ def _cgo_context_data_impl(ctx):
             feature_configuration = feature_configuration,
             action_name = CPP_LINK_DYNAMIC_LIBRARY_ACTION_NAME,
             variables = ld_dynamic_lib_variables,
-        ),
+        ) + ctx.fragments.cpp.linkopts,
         _LINKER_OPTIONS_BLACKLIST,
     )
+
     env.update(cc_common.get_environment_variables(
         feature_configuration = feature_configuration,
         action_name = CPP_LINK_DYNAMIC_LIBRARY_ACTION_NAME,
@@ -815,3 +825,6 @@ go_config = rule(
     configuration. Rules may depend on this instead of depending on all
     the build settings directly.""",
 )
+
+def _expand_opts(go, attribute_name, opts):
+    return [go._ctx.expand_make_variables(attribute_name, opt, {}) for opt in opts]

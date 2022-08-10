@@ -20,16 +20,19 @@
 .\" *
 .\" **************************************************************************
 .\"
-.TH CURLOPT_TRAILERFUNCTION 3 "September 08, 2021" "libcurl 7.79.0" "curl_easy_setopt options"
+.TH CURLOPT_TRAILERFUNCTION 3 "November 26, 2021" "libcurl 7.82.0" "curl_easy_setopt options"
 
 .SH NAME
 CURLOPT_TRAILERFUNCTION \- callback for sending trailing headers
 .SH SYNOPSIS
+.nf
 #include <curl.h>
 
 int curl_trailer_callback(struct curl_slist ** list, void *userdata);
 
-CURLcode curl_easy_setopt(CURL *handle, CURLOPT_TRAILERFUNCTION, curl_trailer_callback *func);
+CURLcode curl_easy_setopt(CURL *handle, CURLOPT_TRAILERFUNCTION,
+                          curl_trailer_callback *func);
+.fi
 .SH DESCRIPTION
 Pass a pointer to a callback function.
 
@@ -67,7 +70,7 @@ HTTP
 static int trailer_cb(struct curl_slist **tr, void *data)
 {
   /* libcurl will free the list */
-  tr = curl_slist_append(*tr, "My-super-awesome-trailer: trailer-stuff");
+  *tr = curl_slist_append(*tr, "My-super-awesome-trailer: trailer-stuff");
   return CURL_TRAILERFUNC_OK;
 }
 

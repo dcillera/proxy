@@ -42,8 +42,9 @@ typedef std::map<std::string, MallocExtension::Property> PropertyMap;
 static size_t Property(const PropertyMap& map, const char* name) {
   const PropertyMap::const_iterator iter = map.find(name);
   if (iter == map.end()) {
-    tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__, "name not found",
-                    name);
+    tcmalloc::tcmalloc_internal::Crash(tcmalloc::tcmalloc_internal::kCrash,
+                                       __FILE__, __LINE__, "name not found",
+                                       name);
   }
   return iter->second.value;
 }
@@ -56,9 +57,9 @@ TEST(StartupSizeTest, Basic) {
       << "couldn't run - no tcmalloc data. Check your malloc configuration.";
   size_t percpu = Property(map, "tcmalloc.cpu_free");
 #ifdef __powerpc64__
-  size_t metadata_limit = 35 * MiB;
+  size_t metadata_limit = 36.5 * MiB;
 #else
-  size_t metadata_limit = 10.1 * MiB;
+  size_t metadata_limit = 13 * MiB;
 #endif
   // Check whether per-cpu is active
   if (percpu > 0) {

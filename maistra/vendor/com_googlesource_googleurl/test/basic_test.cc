@@ -29,7 +29,11 @@ int main(int argc, char** argv) {
 
   // Ensure ICU is functioning correctly.
   GURL idn_url("https://\xe5\x85\x89.example/");
+#ifdef GOOGLEURL_SUPPORTS_IDNA
   ASSERT_EQ(idn_url.spec(), "https://xn--54q.example/");
+#else
+  ASSERT_EQ(idn_url.is_valid(), false);
+#endif
 
   return 0;
 }

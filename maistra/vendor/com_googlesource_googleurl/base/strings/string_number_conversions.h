@@ -149,8 +149,8 @@ BASE_EXPORT bool HexStringToSpan(StringPiece input, gurl_base::span<uint8_t> out
 
 }  // namespace base
 
-#if defined(OS_WIN)
-#include "base/strings/string_number_conversions_win.h"
+#if BUILDFLAG(IS_WIN)
+
 #endif
 
 #endif  // BASE_STRINGS_STRING_NUMBER_CONVERSIONS_H_

@@ -35,11 +35,29 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/macros.h"
+#include "absl/base/policy_checks.h"
 #include "absl/base/port.h"
 #include "absl/functional/function_ref.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
+
+// Indicates how frequently accessed the allocation is expected to be.
+// 0   - The allocation is rarely accessed.
+// ...
+// 255 - The allocation is accessed very frequently.
+enum class hot_cold_t : uint8_t;
+
+// TODO(ckennelly): Lifetimes
+
+namespace tcmalloc {
+
+// Alias to the newer type in the global namespace, so that existing code works
+// as is.
+using ::hot_cold_t;
+
+}  // namespace tcmalloc
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -90,6 +108,17 @@ class Profile final {
     size_t requested_alignment;
     size_t allocated_size;
 
+    enum class Access {
+      Hot,
+      Cold,
+
+      // Only present to prevent switch statements without a default clause so
+      // that we can extend this enumeration without breaking code.
+      kDoNotUse,
+    };
+    hot_cold_t access_hint;
+    Access access_allocated;
+
     int depth;
     void* stack[kMaxStackDepth];
   };
@@ -98,6 +127,10 @@ class Profile final {
 
   int64_t Period() const;
   ProfileType Type() const;
+
+  // The duration the profile was collected for.  For instantaneous profiles
+  // (heap, peakheap, etc.), this returns absl::ZeroDuration().
+  absl::Duration Duration() const;
 
  private:
   explicit Profile(std::unique_ptr<const tcmalloc_internal::ProfileBase>);
@@ -129,6 +162,7 @@ class AddressRegionFactory {
                             // frequently than normal regions.
     kInfrequent ABSL_DEPRECATED("Use kInfrequentAllocation") =
         kInfrequentAllocation,
+    kInfrequentAccess,  // TCMalloc places cold allocations in these regions.
   };
 
   AddressRegionFactory() {}
@@ -295,6 +329,9 @@ class MallocExtension final {
     // Note:  limit=SIZE_T_MAX implies no limit.
     size_t limit = std::numeric_limits<size_t>::max();
     bool hard = false;
+
+    // Explicitly declare the ctor to put it in the google_malloc section.
+    MemoryLimit() = default;
   };
 
   static MemoryLimit GetMemoryLimit();
@@ -308,9 +345,13 @@ class MallocExtension final {
 
   // Gets the guarded sampling rate.  Returns a value < 0 if unknown.
   static int64_t GetGuardedSamplingRate();
-  // Sets the guarded sampling rate for sampled allocations.  Guarded samples
-  // provide probablistic protections against buffer underflow, overflow, and
-  // use-after-free.
+  // Sets the guarded sampling rate for sampled allocations.  TCMalloc samples
+  // approximately every rate bytes allocated, subject to implementation
+  // limitations in GWP-ASan.
+  //
+  // Guarded samples provide probablistic protections against buffer underflow,
+  // overflow, and use-after-free when GWP-ASan is active (via calling
+  // ActivateGuardedSampling).
   static void SetGuardedSamplingRate(int64_t rate);
 
   // Switches TCMalloc to guard sampled allocations for underflow, overflow, and
@@ -329,6 +370,11 @@ class MallocExtension final {
   static int64_t GetMaxTotalThreadCacheBytes();
   // Sets the maximum thread cache size.  This is a whole-process limit.
   static void SetMaxTotalThreadCacheBytes(int64_t value);
+
+  // Gets the delayed subrelease interval (0 if delayed subrelease is disabled)
+  static absl::Duration GetSkipSubreleaseInterval();
+  // Sets the delayed subrelease interval (0 to disable delayed subrelease)
+  static void SetSkipSubreleaseInterval(absl::Duration value);
 
   // Returns the estimated number of bytes that will be allocated for a request
   // of "size" bytes.  This is an estimate: an allocation of "size" bytes may
@@ -433,6 +479,11 @@ class MallocExtension final {
   // When linked against TCMalloc, this method does not return.
   static void ProcessBackgroundActions();
 
+  // Return true if ProcessBackgroundActions should be called on this platform.
+  // Not all platforms need/support background actions. As of 2021 this
+  // includes Apple and Emscripten.
+  static bool NeedsProcessBackgroundActions();
+
   // Specifies a rate in bytes per second.
   //
   // The enum is used to provide strong-typing for the value.
@@ -507,10 +558,12 @@ extern "C" {
 tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new(size_t size);
 tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_nothrow(
     size_t size) noexcept;
+tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold(
+    size_t size, tcmalloc::hot_cold_t hot_cold);
+tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold_nothrow(
+    size_t size, tcmalloc::hot_cold_t hot_cold) noexcept;
 
-// Aligned size returning new is only supported for libc++ because of issues
-// with libstdcxx.so linkage. See http://b/110969867 for background.
-#if defined(_LIBCPP_VERSION) && defined(__cpp_aligned_new)
+#if defined(__cpp_aligned_new)
 
 // Identical to `tcmalloc_size_returning_operator_new` except that the returned
 // memory is aligned according to the `alignment` argument.
@@ -519,7 +572,7 @@ tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_aligned(
 tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_aligned_nothrow(
     size_t size, std::align_val_t alignment) noexcept;
 
-#endif  // _LIBCPP_VERSION && __cpp_aligned_new
+#endif  // __cpp_aligned_new
 
 }  // extern "C"
 
@@ -538,6 +591,9 @@ namespace tcmalloc_internal {
 // while allowing the library to compile and link.
 class AllocationProfilingTokenBase {
  public:
+  // Explicitly declare the ctor to put it in the google_malloc section.
+  AllocationProfilingTokenBase() = default;
+
   virtual ~AllocationProfilingTokenBase() = default;
 
   // Finish recording started during construction of this object.
@@ -566,6 +622,10 @@ class ProfileBase {
 
   // The type of profile (live objects, allocated, etc.).
   virtual ProfileType Type() const = 0;
+
+  // The duration the profile was collected for.  For instantaneous profiles
+  // (heap, peakheap, etc.), this returns absl::ZeroDuration().
+  virtual absl::Duration Duration() const = 0;
 };
 
 }  // namespace tcmalloc_internal

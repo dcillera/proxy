@@ -101,9 +101,13 @@ protoc \
   example.proto
 ```
 
-All messages generated include the new `Validate() error` method. PGV requires no additional runtime dependencies from the existing generated code.
+All messages generated include the following methods:
+- `Validate() error` which returns the first error encountered during validation.
+- `ValidateAll() error` which returns all errors encountered during validation.
+  
+PGV requires no additional runtime dependencies from the existing generated code.
 
-**Note**: by default **example.pb.validate.go** is nested in a directory structure that matches your `option go_package` name. You can change this using the protoc parameter `paths=source_relative:.`. Then `--validate_out` will output the file where it is expected. See Google's protobuf documenation or [packages and input paths](https://github.com/golang/protobuf#packages-and-input-paths) or [parameters](https://github.com/golang/protobuf#parameters) for more information.
+**Note**: by default **example.pb.validate.go** is nested in a directory structure that matches your `option go_package` name. You can change this using the protoc parameter `paths=source_relative:.`. Then `--validate_out` will output the file where it is expected. See Google's protobuf documentation or [packages and input paths](https://github.com/golang/protobuf#packages-and-input-paths) or [parameters](https://github.com/golang/protobuf#parameters) for more information.
 
 There's also support for the `module=example.com/foo` flag [described here](https://developers.google.com/protocol-buffers/docs/reference/go-generated#invocation).
 
@@ -133,7 +137,7 @@ following to your pom.xml or build.gradle.
         <plugin>
             <groupId>org.xolstice.maven.plugins</groupId>
             <artifactId>protobuf-maven-plugin</artifactId>
-            <version>0.5.0</version>
+            <version>0.6.1</version>
             <configuration>
                 <protocArtifact>com.google.protobuf:protoc:${protoc.version}:exe:${os.detected.classifier}</protocArtifact>
             </configuration>
@@ -158,18 +162,18 @@ following to your pom.xml or build.gradle.
 ```gradle
 plugins {
     ...
-    id "com.google.protobuf" version "0.8.6"
+    id "com.google.protobuf" version "${protobuf.version}"
     ...
 }
 
 protobuf {
     protoc {
-        artifact = "com.google.protobuf:protoc:3.5.1"
+        artifact = "com.google.protobuf:protoc:${protoc.version}"
     }
 
     plugins {
         javapgv {
-            artifact = "io.envoyproxy.protoc-gen-validate:protoc-gen-validate:0.1.0"
+            artifact = "io.envoyproxy.protoc-gen-validate:protoc-gen-validate:${pgv.version}"
         }
     }
 
@@ -253,7 +257,7 @@ Check the [constraint rule comparison matrix](rule_comparison.md) for language-s
   double x = 1 [(validate.rules).double = {lt:30, gte:40}];
   ```
 
-- **in/not_in**: these two rules permit specifying white/blacklists for the values of a field.
+- **in/not_in**: these two rules permit specifying allow/denylists for the values of a field.
 
   ```protobuf
   // x must be either 1, 2, or 3
@@ -342,7 +346,7 @@ Check the [constraint rule comparison matrix](rule_comparison.md) for language-s
   string x = 1 [(validate.rules).string = {suffix: ".proto", max_len:64}];
   ```
 
-- **in/not_in**: these two rules permit specifying white/blacklists for the values of a field.
+- **in/not_in**: these two rules permit specifying allow/denylists for the values of a field.
 
   ```protobuf
   // x must be either "foo", "bar", or "baz"
@@ -447,7 +451,7 @@ Check the [constraint rule comparison matrix](rule_comparison.md) for language-s
   bytes x = 1 [(validate.rules).bytes.contains = "baz"];
   ```
 
-- **in/not_in**: these two rules permit specifying white/blacklists for the values of a field.
+- **in/not_in**: these two rules permit specifying allow/denylists for the values of a field.
 
   ```protobuf
   // x must be either "foo", "bar", or "baz"
@@ -506,7 +510,7 @@ enum State {
   State x = 1 [(validate.rules).enum.defined_only = true];
   ```
 
-- **in/not_in**: these two rules permit specifying white/blacklists for the values of a field.
+- **in/not_in**: these two rules permit specifying allow/denylists for the values of a field.
 
   ```protobuf
   // x must be either INACTIVE (0) or ACTIVE (2)
@@ -578,7 +582,7 @@ Person x = 1;
 - **ignore_empty**: this rule specifies that if field is empty or set to the default value, to ignore any validation rules. These are typically useful where being able to unset a field in an update request, or to skip validation for optional fields where switching to WKTs is not feasible.
 
   ```protobuf
-  repeated int64 x = 1 [(validate.rules).repeated = {ignore_empty: true, items: {int64: {gt = 200}}}];
+  repeated int64 x = 1 [(validate.rules).repeated = {ignore_empty: true, items: {int64: {gt: 200}}}];
   ```
 
 ### Maps
@@ -655,7 +659,7 @@ message X { google.protobuf.Int32Value age = 1 [(validate.rules).int32.gt = -1, 
   google.protobuf.Any x = 1 [(validate.rules).any.required = true];
   ```
 
-- **in/not_in**: these two rules permit specifying white/blacklists for the `type_url` value in this field. Consider using a `oneof` union instead of `in` if possible.
+- **in/not_in**: these two rules permit specifying allow/denylists for the `type_url` value in this field. Consider using a `oneof` union instead of `in` if possible.
 
   ```protobuf
   // x must not be the Duration or Timestamp WKT
@@ -710,7 +714,7 @@ message X { google.protobuf.Int32Value age = 1 [(validate.rules).int32.gt = -1, 
     }];
   ```
 
-- **in/not_in**: these two rules permit specifying white/blacklists for the values of a field.
+- **in/not_in**: these two rules permit specifying allow/denylists for the values of a field.
 
   ```protobuf
   // x must be either 0s or 1s

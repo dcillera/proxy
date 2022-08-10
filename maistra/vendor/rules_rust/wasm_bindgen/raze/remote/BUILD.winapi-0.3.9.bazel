@@ -10,9 +10,10 @@ load("@bazel_skylib//lib:selects.bzl", "selects")
 
 # buildifier: disable=load
 load(
-    "@rules_rust//rust:rust.bzl",
+    "@rules_rust//rust:defs.bzl",
     "rust_binary",
     "rust_library",
+    "rust_proc_macro",
     "rust_test",
 )
 
@@ -29,8 +30,60 @@ licenses([
 ])
 
 # Generated Targets
+# buildifier: disable=out-of-order-load
+# buildifier: disable=load-on-top
+load(
+    "@rules_rust//cargo:cargo_build_script.bzl",
+    "cargo_build_script",
+)
 
-# Unsupported target "build-script-build" with type "custom-build" omitted
+cargo_build_script(
+    name = "winapi_build_script",
+    srcs = glob(["**/*.rs"]),
+    build_script_env = {
+    },
+    crate_features = [
+        "consoleapi",
+        "errhandlingapi",
+        "fileapi",
+        "handleapi",
+        "libloaderapi",
+        "lmcons",
+        "minschannel",
+        "minwinbase",
+        "minwindef",
+        "processenv",
+        "schannel",
+        "securitybaseapi",
+        "sspi",
+        "std",
+        "sysinfoapi",
+        "timezoneapi",
+        "winbase",
+        "wincon",
+        "wincrypt",
+        "winerror",
+        "winnt",
+        "winsock2",
+        "ws2def",
+        "ws2ipdef",
+        "ws2tcpip",
+    ],
+    crate_root = "build.rs",
+    data = glob(["**"]),
+    edition = "2015",
+    rustc_flags = [
+        "--cap-lints=allow",
+    ],
+    tags = [
+        "cargo-raze",
+        "manual",
+    ],
+    version = "0.3.9",
+    visibility = ["//visibility:private"],
+    deps = [
+    ],
+)
 
 rust_library(
     name = "winapi",
@@ -40,20 +93,14 @@ rust_library(
         "errhandlingapi",
         "fileapi",
         "handleapi",
-        "knownfolders",
         "libloaderapi",
         "lmcons",
         "minschannel",
         "minwinbase",
         "minwindef",
-        "ntdef",
-        "ntsecapi",
-        "objbase",
         "processenv",
-        "profileapi",
         "schannel",
         "securitybaseapi",
-        "shlobj",
         "sspi",
         "std",
         "sysinfoapi",
@@ -69,7 +116,6 @@ rust_library(
         "ws2tcpip",
     ],
     crate_root = "src/lib.rs",
-    crate_type = "lib",
     data = [],
     edition = "2015",
     rustc_flags = [
@@ -77,10 +123,12 @@ rust_library(
     ],
     tags = [
         "cargo-raze",
+        "crate-name=winapi",
         "manual",
     ],
     version = "0.3.9",
     # buildifier: leave-alone
     deps = [
+        ":winapi_build_script",
     ],
 )

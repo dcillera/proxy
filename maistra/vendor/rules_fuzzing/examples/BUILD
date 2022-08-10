@@ -58,6 +58,10 @@ cc_fuzz_test(
 cc_fuzz_test(
     name = "fuzzed_data_provider_fuzz_test",
     srcs = ["fuzzed_data_provider_fuzz_test.cc"],
+    target_compatible_with = select({
+        "//:clang": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
 )
 
 cc_fuzz_test(
@@ -109,5 +113,32 @@ cc_fuzz_test(
     srcs = ["re2_fuzz_test.cc"],
     deps = [
         "@re2",
+    ],
+)
+
+cc_fuzz_test(
+    name = "runfiles_fuzz_test",
+    srcs = ["runfiles_fuzz_test.cc"],
+    data = [
+        ":corpus_0.txt",
+    ],
+    deps = [
+        "@bazel_tools//tools/cpp/runfiles",
+    ],
+)
+
+cc_fuzz_test(
+    name = "ubsan_int_overflow_fuzz_test",
+    srcs = ["ubsan_int_overflow_fuzz_test.cc"],
+    tags = [
+        "no-oss-fuzz",
+    ],
+)
+
+cc_fuzz_test(
+    name = "ubsan_function_ptr_fuzz_test",
+    srcs = ["ubsan_function_ptr_fuzz_test.cc"],
+    tags = [
+        "no-oss-fuzz",
     ],
 )

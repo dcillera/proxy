@@ -140,6 +140,11 @@ go_library(
 )
 
 go_bazel_test(
+    name = "test_fail_fast_test",
+    srcs = ["test_fail_fast_test.go"],
+)
+
+go_bazel_test(
     name = "test_filter_test",
     srcs = ["test_filter_test.go"],
 )
@@ -207,4 +212,21 @@ go_test(
     name = "wrapped_test",
     srcs = ["wrapped_test.go"],
     tags = ["manual"],
+)
+
+go_test(
+    name = "fuzz_test",
+    srcs = ["fuzz_test.go"],
+)
+
+go_test(
+    name = "env_test",
+    srcs = ["env_test.go"],
+    data = ["@go_sdk//:lib/time/zoneinfo.zip"],
+    env = {
+        "ZONEINFO": "$(execpath @go_sdk//:lib/time/zoneinfo.zip)",
+    },
+    deps = [
+        "@io_bazel_rules_go//go/tools/bazel",
+    ],
 )

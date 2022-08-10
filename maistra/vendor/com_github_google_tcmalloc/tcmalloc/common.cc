@@ -14,18 +14,31 @@
 
 #include "tcmalloc/common.h"
 
+#include <algorithm>
+
 #include "tcmalloc/experiment.h"
+#include "tcmalloc/internal/environment.h"
+#include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/runtime_size_classes.h"
 #include "tcmalloc/sampler.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
+namespace tcmalloc_internal {
+
+ABSL_CONST_INIT std::atomic<bool> hot_cold_pageheap_active{true};
 
 absl::string_view MemoryTagToLabel(MemoryTag tag) {
   switch (tag) {
     case MemoryTag::kNormal:
       return "NORMAL";
+    case MemoryTag::kNormalP1:
+      return "NORMAL_P1";
     case MemoryTag::kSampled:
       return "SAMPLED";
+    case MemoryTag::kCold:
+      return "COLD";
     default:
       ASSUME(false);
   }
@@ -55,6 +68,8 @@ bool SizeMap::MaybeRunTimeSizeClasses() {
 }
 
 void SizeMap::SetSizeClasses(int num_classes, const SizeClassInfo* parsed) {
+  CHECK_CONDITION(ValidSizeClasses(num_classes, parsed));
+
   class_to_size_[0] = 0;
   class_to_pages_[0] = 0;
   num_objects_to_move_[0] = 0;
@@ -66,10 +81,20 @@ void SizeMap::SetSizeClasses(int num_classes, const SizeClassInfo* parsed) {
   }
 
   // Fill any unspecified size classes with 0.
-  for (int x = num_classes; x < kNumClasses; x++) {
+  for (int x = num_classes; x < kNumBaseClasses; x++) {
     class_to_size_[x] = 0;
     class_to_pages_[x] = 0;
     num_objects_to_move_[x] = 0;
+  }
+
+  // Copy selected size classes into the upper registers.
+  for (int i = 1; i < (kNumClasses / kNumBaseClasses); i++) {
+    std::copy(&class_to_size_[0], &class_to_size_[kNumBaseClasses],
+              &class_to_size_[kNumBaseClasses * i]);
+    std::copy(&class_to_pages_[0], &class_to_pages_[kNumBaseClasses],
+              &class_to_pages_[kNumBaseClasses * i]);
+    std::copy(&num_objects_to_move_[0], &num_objects_to_move_[kNumBaseClasses],
+              &num_objects_to_move_[kNumBaseClasses * i]);
   }
 }
 
@@ -79,8 +104,8 @@ bool SizeMap::ValidSizeClasses(int num_classes, const SizeClassInfo* parsed) {
   if (num_classes <= 0) {
     return false;
   }
-  if (kHasExpandedClasses && num_classes > kNumClasses / 2) {
-    num_classes = kNumClasses / 2;
+  if (kHasExpandedClasses && num_classes > kNumBaseClasses) {
+    num_classes = kNumBaseClasses;
   }
 
   for (int c = 1; c < num_classes; c++) {
@@ -125,16 +150,17 @@ bool SizeMap::ValidSizeClasses(int num_classes, const SizeClassInfo* parsed) {
       return false;
     }
   }
-  // Last size class must be able to hold kMaxSize.
-  if (parsed[num_classes - 1].size < kMaxSize) {
+  // Last size class must be kMaxSize.  This is not strictly
+  // class_to_size_[kNumBaseClasses - 1] because several size class
+  // configurations populate fewer distinct size classes and fill the tail of
+  // the array with zeroes.
+  if (parsed[num_classes - 1].size != kMaxSize) {
     Log(kLog, __FILE__, __LINE__, "last class doesn't cover kMaxSize",
         num_classes - 1, parsed[num_classes - 1].size, kMaxSize);
     return false;
   }
   return true;
 }
-
-int ABSL_ATTRIBUTE_WEAK default_want_legacy_spans();
 
 // Initialize the mapping arrays
 void SizeMap::Init() {
@@ -150,18 +176,16 @@ void SizeMap::Init() {
 
   static_assert(kAlignment <= 16, "kAlignment is too large");
 
-  if (IsExperimentActive(Experiment::TCMALLOC_SANS_56_SIZECLASS)) {
-    SetSizeClasses(kExperimentalSizeClassesCount, kExperimentalSizeClasses);
-  } else if (IsExperimentActive(Experiment::TCMALLOC_4K_SIZE_CLASS)) {
-    SetSizeClasses(kExperimental4kSizeClassesCount, kExperimental4kSizeClasses);
+  if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS)) {
+    SetSizeClasses(kExperimentalPow2SizeClassesCount,
+                   kExperimentalPow2SizeClasses);
+  } else if (IsExperimentActive(Experiment::TCMALLOC_POW2_BELOW_64) ||
+             IsExperimentActive(
+                 Experiment::TEST_ONLY_TCMALLOC_POW2_BELOW64_SIZECLASS)) {
+    SetSizeClasses(kExperimentalPow2Below64SizeClassesCount,
+                   kExperimentalPow2Below64SizeClasses);
   } else {
-    if (default_want_legacy_spans != nullptr &&
-        default_want_legacy_spans() > 0) {
-      SetSizeClasses(kSizeClassesCount, kSizeClasses);
-    } else {
-      SetSizeClasses(kExperimental4kSizeClassesCount,
-                     kExperimental4kSizeClasses);
-    }
+    SetSizeClasses(kSizeClassesCount, kSizeClasses);
   }
   MaybeRunTimeSizeClasses();
 
@@ -177,6 +201,101 @@ void SizeMap::Init() {
       break;
     }
   }
+
+  if (!kHasExpandedClasses) {
+    return;
+  }
+
+  memset(cold_sizes_, 0, sizeof(cold_sizes_));
+  cold_sizes_count_ = 0;
+
+  // Initialize hot_cold_pageheap_active.
+  const char* e = thread_safe_getenv("TCMALLOC_HOTCOLD_CONTROL");
+  if (e) {
+    switch (e[0]) {
+      case '0':
+        hot_cold_pageheap_active.store(false, std::memory_order_relaxed);
+        break;
+      case '1':
+        // Do nothing.
+        ASSERT(hot_cold_pageheap_active.load(std::memory_order_relaxed));
+        break;
+      default:
+        Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
+        break;
+    }
+  }
+
+  if (!ColdExperimentActive()) {
+    std::copy(&class_array_[0], &class_array_[kClassArraySize],
+              &class_array_[kClassArraySize]);
+    return;
+  }
+
+  // TODO(b/124707070): Systematically identify candidates for cold allocation
+  // and include them explicitly in size_classes.cc.
+  ABSL_CONST_INIT static constexpr size_t kColdCandidates[] = {
+      2048,  4096,  6144,  7168,  8192,   16384,
+      20480, 32768, 40960, 65536, 131072, 262144,
+  };
+  static_assert(ABSL_ARRAYSIZE(kColdCandidates) <= ABSL_ARRAYSIZE(cold_sizes_),
+                "kColdCandidates is too large.");
+
+  // Point all lookups in the upper register of class_array_ (allocations
+  // seeking cold memory) to the lower size classes.  This gives us an easy
+  // fallback for sizes that are too small for moving to cold memory (due to
+  // intrusive span metadata).
+  std::copy(&class_array_[0], &class_array_[kClassArraySize],
+            &class_array_[kClassArraySize]);
+
+  for (size_t max_size_in_class : kColdCandidates) {
+    ASSERT(max_size_in_class != 0);
+
+    // Find the size class.  Some of our kColdCandidates may not map to actual
+    // size classes in our current configuration.
+    bool found = false;
+    int c;
+    for (c = kExpandedClassesStart; c < kNumClasses; c++) {
+      if (class_to_size_[c] == max_size_in_class) {
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      continue;
+    }
+
+    // Verify the candidate can fit into a single span's kCacheSize, otherwise,
+    // we use an intrusive freelist which triggers memory accesses.
+    if (Length(class_to_pages_[c]).in_bytes() / max_size_in_class >
+        Span::kCacheSize) {
+      continue;
+    }
+
+    cold_sizes_[cold_sizes_count_] = c;
+    cold_sizes_count_++;
+
+    for (int s = next_size; s <= max_size_in_class; s += kAlignment) {
+      class_array_[ClassIndex(s) + kClassArraySize] = c;
+    }
+    next_size = max_size_in_class + kAlignment;
+    if (next_size > kMaxSize) {
+      break;
+    }
+  }
 }
 
+extern "C" bool TCMalloc_Internal_ColdExperimentActive() {
+  return ColdExperimentActive();
+}
+
+// This only provides correct answer for TCMalloc-allocated memory,
+// and may give a false positive for non-allocated block.
+extern "C" bool TCMalloc_Internal_PossiblyCold(const void* ptr) {
+  return IsColdMemory(ptr);
+}
+
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

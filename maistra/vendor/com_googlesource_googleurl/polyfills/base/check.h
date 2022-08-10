@@ -5,6 +5,7 @@
 #ifndef POLYFILLS_BASE_CHECK_H_
 #define POLYFILLS_BASE_CHECK_H_
 
+#include "polyfills/base/base_export.h"
 #include "polyfills/base/logging.h"
 
 #endif /* POLYFILLS_BASE_CHECK_H_ */

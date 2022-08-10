@@ -18,152 +18,104 @@
 
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/page_heap.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/static_vars.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
+namespace tcmalloc_internal {
+namespace central_freelist_internal {
 
-static MemoryTag MemoryTagFromSizeClass(size_t cl) {
-  return MemoryTag::kNormal;
+static MemoryTag MemoryTagFromSizeClass(size_t size_class) {
+  if (IsExpandedSizeClass(size_class)) {
+    return MemoryTag::kCold;
+  }
+  if (!Static::numa_topology().numa_aware()) {
+    return MemoryTag::kNormal;
+  }
+  return NumaNormalTag(size_class / kNumBaseClasses);
 }
 
-// Like a constructor and hence we disable thread safety analysis.
-void CentralFreeList::Init(size_t cl) ABSL_NO_THREAD_SAFETY_ANALYSIS {
-  size_class_ = cl;
-  object_size_ = Static::sizemap().class_to_size(cl);
-  pages_per_span_ = Length(Static::sizemap().class_to_pages(cl));
-  objects_per_span_ =
-      pages_per_span_.in_bytes() / (object_size_ ? object_size_ : 1);
+size_t StaticForwarder::class_to_size(int size_class) {
+  return Static::sizemap().class_to_size(size_class);
 }
 
-static Span* MapObjectToSpan(void* object) {
+Length StaticForwarder::class_to_pages(int size_class) {
+  return Length(Static::sizemap().class_to_pages(size_class));
+}
+
+void StaticForwarder::SetPrioritizeSpans(bool value) {
+  TCMalloc_Internal_SetPrioritizeSpansEnabled(value);
+}
+
+bool StaticForwarder::PrioritizeSpans() {
+  return TCMalloc_Internal_GetPrioritizeSpansEnabled();
+}
+
+Span* StaticForwarder::MapObjectToSpan(const void* object) {
   const PageId p = PageIdContaining(object);
   Span* span = Static::pagemap().GetExistingDescriptor(p);
   return span;
 }
 
-Span* CentralFreeList::ReleaseToSpans(void* object, Span* span) {
-  if (span->FreelistEmpty()) {
-    nonempty_.prepend(span);
-  }
-
-  if (span->FreelistPush(object, object_size_)) {
+Span* StaticForwarder::AllocateSpan(int size_class, Length pages_per_span) {
+  const MemoryTag tag = MemoryTagFromSizeClass(size_class);
+  Span* span = Static::page_allocator().New(pages_per_span, tag);
+  if (ABSL_PREDICT_FALSE(span == nullptr)) {
     return nullptr;
   }
-  span->RemoveFromList();  // from nonempty_
+  ASSERT(tag == GetMemoryTag(span->start_address()));
+  ASSERT(span->num_pages() == pages_per_span);
+
+  Static::pagemap().RegisterSizeClass(span, size_class);
   return span;
 }
 
-void CentralFreeList::InsertRange(void** batch, int N) {
-  CHECK_CONDITION(N > 0 && N <= kMaxObjectsToMove);
-  Span* spans[kMaxObjectsToMove];
-  // Safe to store free spans into freed up space in span array.
-  Span** free_spans = spans;
-  int free_count = 0;
-
-  // Prefetch Span objects to reduce cache misses.
-  for (int i = 0; i < N; ++i) {
-    Span* span = MapObjectToSpan(batch[i]);
-    ASSERT(span != nullptr);
-    span->Prefetch();
-    spans[i] = span;
-  }
-
-  // First, release all individual objects into spans under our mutex
-  // and collect spans that become completely free.
-  {
-    absl::base_internal::SpinLockHolder h(&lock_);
-    for (int i = 0; i < N; ++i) {
-      Span* span = ReleaseToSpans(batch[i], spans[i]);
-      if (span) {
-        free_spans[free_count] = span;
-        free_count++;
-      }
-    }
-    RecordMultiSpansDeallocated(free_count);
-    UpdateObjectCounts(N);
-  }
-
-  // Then, release all free spans into page heap under its mutex.
-  if (free_count) {
-    const MemoryTag tag = MemoryTagFromSizeClass(size_class_);
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    for (int i = 0; i < free_count; ++i) {
-      Span* const free_span = free_spans[i];
-      ASSERT(IsNormalMemory(free_span->start_address())
-      );
-      Static::pagemap().UnregisterSizeClass(free_span);
-      ASSERT(tag == GetMemoryTag(free_span->start_address()));
-      Static::page_allocator().Delete(free_span, tag);
-    }
+static void ReturnSpansToPageHeap(MemoryTag tag, absl::Span<Span*> free_spans)
+    ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  for (Span* const free_span : free_spans) {
+    ASSERT(tag == GetMemoryTag(free_span->start_address()));
+    Static::page_allocator().Delete(free_span, tag);
   }
 }
 
-int CentralFreeList::RemoveRange(void** batch, int N) {
-  ASSERT(N > 0);
-  absl::base_internal::SpinLockHolder h(&lock_);
-  if (nonempty_.empty()) {
-    Populate();
+void StaticForwarder::DeallocateSpans(int size_class,
+                                      absl::Span<Span*> free_spans) {
+  // Unregister size class doesn't require holding any locks.
+  for (Span* const free_span : free_spans) {
+    ASSERT(IsNormalMemory(free_span->start_address()) ||
+           IsColdMemory(free_span->start_address()));
+    Static::pagemap().UnregisterSizeClass(free_span);
+
+    // Before taking pageheap_lock, prefetch the PageTrackers these spans are
+    // on.
+    //
+    // Small-but-slow does not use the HugePageAwareAllocator (by default), so
+    // do not prefetch on this config.
+#ifndef TCMALLOC_SMALL_BUT_SLOW
+    const PageId p = free_span->first_page();
+
+    // In huge_page_filler.h, we static_assert that PageTracker's key elements
+    // for deallocation are within the first two cachelines.
+    void* pt = Static::pagemap().GetHugepage(p);
+    // Prefetch for writing, as we will issue stores to the PageTracker
+    // instance.
+    __builtin_prefetch(pt, 1, 3);
+    __builtin_prefetch(reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(pt) +
+                                               ABSL_CACHELINE_SIZE),
+                       1, 3);
+#endif  // TCMALLOC_SMALL_BUT_SLOW
   }
 
-  int result = 0;
-  while (result < N && !nonempty_.empty()) {
-    Span* span = nonempty_.first();
-    int here = span->FreelistPopBatch(batch + result, N - result, object_size_);
-    ASSERT(here > 0);
-    if (span->FreelistEmpty()) {
-      span->RemoveFromList();  // from nonempty_
-    }
-    result += here;
-  }
-  UpdateObjectCounts(-result);
-  return result;
+  const MemoryTag tag = MemoryTagFromSizeClass(size_class);
+  ReturnSpansToPageHeap(tag, free_spans);
 }
 
-// Fetch memory from the system and add to the central cache freelist.
-void CentralFreeList::Populate() ABSL_NO_THREAD_SAFETY_ANALYSIS {
-  // Release central list lock while operating on pageheap
-  lock_.Unlock();
-
-  const MemoryTag tag = MemoryTagFromSizeClass(size_class_);
-  Span* span = Static::page_allocator().New(pages_per_span_, tag);
-  ASSERT(tag == GetMemoryTag(span->start_address()));
-  if (span == nullptr) {
-    Log(kLog, __FILE__, __LINE__, "tcmalloc: allocation failed",
-        pages_per_span_.in_bytes());
-    lock_.Lock();
-    return;
-  }
-  ASSERT(span->num_pages() == pages_per_span_);
-
-  Static::pagemap().RegisterSizeClass(span, size_class_);
-  span->BuildFreelist(object_size_, objects_per_span_);
-
-  // Add span to list of non-empty spans
-  lock_.Lock();
-  nonempty_.prepend(span);
-  RecordSpanAllocated();
-}
-
-size_t CentralFreeList::OverheadBytes() {
-  if (object_size_ == 0) {
-    return 0;
-  }
-  const size_t overhead_per_span = pages_per_span_.in_bytes() % object_size_;
-  return num_spans() * overhead_per_span;
-}
-
-SpanStats CentralFreeList::GetSpanStats() const {
-  SpanStats stats;
-  if (objects_per_span_ == 0) {
-    return stats;
-  }
-  stats.num_spans_requested = static_cast<size_t>(num_spans_requested_.value());
-  stats.num_spans_returned = static_cast<size_t>(num_spans_returned_.value());
-  stats.obj_capacity = stats.num_live_spans() * objects_per_span_;
-  return stats;
-}
-
+}  // namespace central_freelist_internal
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

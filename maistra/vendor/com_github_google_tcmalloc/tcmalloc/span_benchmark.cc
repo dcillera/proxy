@@ -25,44 +25,46 @@
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
 
 class RawSpan {
  public:
-  void Init(size_t cl) {
-    size_t size = Static::sizemap().class_to_size(cl);
-    auto npages = Length(Static::sizemap().class_to_pages(cl));
+  void Init(size_t size_class) {
+    size_t size = Static::sizemap().class_to_size(size_class);
+    auto npages = Length(Static::sizemap().class_to_pages(size_class));
     size_t objects_per_span = npages.in_bytes() / size;
 
-    void *mem;
+    void* mem;
     int res = posix_memalign(&mem, kPageSize, npages.in_bytes());
     CHECK_CONDITION(res == 0);
     span_.set_first_page(PageIdContaining(mem));
     span_.set_num_pages(npages);
-    span_.BuildFreelist(size, objects_per_span);
+    span_.BuildFreelist(size, objects_per_span, nullptr, 0);
   }
 
   ~RawSpan() { free(span_.start_address()); }
 
-  Span &span() { return span_; }
+  Span& span() { return span_; }
 
  private:
   Span span_;
 };
 
-// BM_single_span repeatedly pushes and pops the same num_objects_to_move(cl)
-// objects from the span.
-void BM_single_span(benchmark::State &state) {
-  const int cl = state.range(0);
+// BM_single_span repeatedly pushes and pops the same
+// num_objects_to_move(size_class) objects from the span.
+void BM_single_span(benchmark::State& state) {
+  const int size_class = state.range(0);
 
-  size_t size = Static::sizemap().class_to_size(cl);
-  size_t batch_size = Static::sizemap().num_objects_to_move(cl);
+  size_t size = Static::sizemap().class_to_size(size_class);
+  size_t batch_size = Static::sizemap().num_objects_to_move(size_class);
   RawSpan raw_span;
-  raw_span.Init(cl);
-  Span &span = raw_span.span();
+  raw_span.Init(size_class);
+  Span& span = raw_span.span();
 
-  void *batch[kMaxObjectsToMove];
+  void* batch[kMaxObjectsToMove];
 
   int64_t processed = 0;
   while (state.KeepRunningBatch(batch_size)) {
@@ -79,18 +81,18 @@ void BM_single_span(benchmark::State &state) {
 
 // BM_single_span_fulldrain alternates between fully draining and filling the
 // span.
-void BM_single_span_fulldrain(benchmark::State &state) {
-  const int cl = state.range(0);
+void BM_single_span_fulldrain(benchmark::State& state) {
+  const int size_class = state.range(0);
 
-  size_t size = Static::sizemap().class_to_size(cl);
-  size_t npages = Static::sizemap().class_to_pages(cl);
-  size_t batch_size = Static::sizemap().num_objects_to_move(cl);
+  size_t size = Static::sizemap().class_to_size(size_class);
+  size_t npages = Static::sizemap().class_to_pages(size_class);
+  size_t batch_size = Static::sizemap().num_objects_to_move(size_class);
   size_t objects_per_span = npages * kPageSize / size;
   RawSpan raw_span;
-  raw_span.Init(cl);
-  Span &span = raw_span.span();
+  raw_span.Init(size_class);
+  Span& span = raw_span.span();
 
-  std::vector<void *> objects(objects_per_span, nullptr);
+  std::vector<void*> objects(objects_per_span, nullptr);
   size_t oindex = 0;
 
   size_t processed = 0;
@@ -104,7 +106,7 @@ void BM_single_span_fulldrain(benchmark::State &state) {
 
     // Fill span
     while (oindex > 0) {
-      void *p = objects[oindex - 1];
+      void* p = objects[oindex - 1];
       if (!span.FreelistPush(p, size)) {
         break;
       }
@@ -146,10 +148,10 @@ BENCHMARK(BM_single_span_fulldrain)
     ->Arg(40)
     ->Arg(kNumClasses - 1);
 
-void BM_NewDelete(benchmark::State &state) {
+void BM_NewDelete(benchmark::State& state) {
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
   for (auto s : state) {
-    Span *sp = Span::New(PageId{0}, Length(1));
+    Span* sp = Span::New(PageId{0}, Length(1));
     benchmark::DoNotOptimize(sp);
     Span::Delete(sp);
   }
@@ -158,22 +160,22 @@ void BM_NewDelete(benchmark::State &state) {
 
 BENCHMARK(BM_NewDelete);
 
-void BM_multiple_spans(benchmark::State &state) {
-  const int cl = state.range(0);
+void BM_multiple_spans(benchmark::State& state) {
+  const int size_class = state.range(0);
 
   // Should be large enough to cause cache misses
   const int num_spans = 10000000;
   std::vector<Span> spans(num_spans);
-  size_t size = Static::sizemap().class_to_size(cl);
-  size_t batch_size = Static::sizemap().num_objects_to_move(cl);
+  size_t size = Static::sizemap().class_to_size(size_class);
+  size_t batch_size = Static::sizemap().num_objects_to_move(size_class);
   for (int i = 0; i < num_spans; i++) {
     RawSpan raw_span;
-    raw_span.Init(cl);
+    raw_span.Init(size_class);
     spans[i] = raw_span.span();
   }
   absl::BitGen rng;
 
-  void *batch[kMaxObjectsToMove];
+  void* batch[kMaxObjectsToMove];
 
   int64_t processed = 0;
   while (state.KeepRunningBatch(batch_size)) {
@@ -205,4 +207,6 @@ BENCHMARK(BM_multiple_spans)
     ->Arg(kNumClasses - 1);
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

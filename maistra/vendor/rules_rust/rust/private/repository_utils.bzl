@@ -138,17 +138,27 @@ def BUILD_for_clippy(target_triple):
     return _build_file_for_clippy_template.format(binary_ext = system_to_binary_ext(system))
 
 _build_file_for_stdlib_template = """\
-filegroup(
-    name = "rust_lib-{target_triple}",
+load("@rules_rust//rust:toolchain.bzl", "rust_stdlib_filegroup")
+
+rust_stdlib_filegroup(
+    name = "rust_std-{target_triple}",
     srcs = glob(
         [
             "lib/rustlib/{target_triple}/lib/*.rlib",
             "lib/rustlib/{target_triple}/lib/*{dylib_ext}",
             "lib/rustlib/{target_triple}/lib/*{staticlib_ext}",
+            "lib/rustlib/{target_triple}/lib/self-contained/**",
         ],
         # Some patterns (e.g. `lib/*.a`) don't match anything, see https://github.com/bazelbuild/rules_rust/pull/245
         allow_empty = True,
     ),
+    visibility = ["//visibility:public"],
+)
+
+# For legacy support
+alias(
+    name = "rust_lib-{target_triple}",
+    actual = "rust_std-{target_triple}",
     visibility = ["//visibility:public"],
 )
 """
@@ -174,9 +184,9 @@ _build_file_for_rust_toolchain_template = """\
 rust_toolchain(
     name = "{toolchain_name}_impl",
     rust_doc = "@{workspace_name}//:rustdoc",
-    rust_lib = "@{workspace_name}//:rust_lib-{target_triple}",
+    rust_std = "@{workspace_name}//:rust_std-{target_triple}",
     rustc = "@{workspace_name}//:rustc",
-    rustfmt = "@{workspace_name}//:rustfmt_bin",
+    rustfmt = {rustfmt_label},
     cargo = "@{workspace_name}//:cargo",
     clippy_driver = "@{workspace_name}//:clippy_driver_bin",
     rustc_lib = "@{workspace_name}//:rustc_lib",
@@ -199,8 +209,9 @@ def BUILD_for_rust_toolchain(
         exec_triple,
         target_triple,
         include_rustc_srcs,
-        stdlib_linkflags = None,
-        default_edition = "2015"):
+        default_edition,
+        include_rustfmt,
+        stdlib_linkflags = None):
     """Emits a toolchain declaration to match an existing compiler and stdlib.
 
     Args:
@@ -209,10 +220,12 @@ def BUILD_for_rust_toolchain(
         exec_triple (str): The rust-style target that this compiler runs on
         target_triple (str): The rust-style target triple of the tool
         include_rustc_srcs (bool, optional): Whether to download rustc's src code. This is required in order to use rust-analyzer support. Defaults to False.
+        default_edition (str): Default Rust edition.
+        include_rustfmt (bool): Whether rustfmt is present in the toolchain.
         stdlib_linkflags (list, optional): Overriden flags needed for linking to rust
                                            stdlib, akin to BAZEL_LINKLIBS. Defaults to
                                            None.
-        default_edition (str, optional): Default Rust edition. Defaults to "2015".
+
 
     Returns:
         str: A rendered template of a `rust_toolchain` declaration
@@ -224,6 +237,9 @@ def BUILD_for_rust_toolchain(
     rustc_srcs = "None"
     if include_rustc_srcs:
         rustc_srcs = "\"@{workspace_name}//lib/rustlib/src:rustc_srcs\"".format(workspace_name = workspace_name)
+    rustfmt_label = "None"
+    if include_rustfmt:
+        rustfmt_label = "\"@{workspace_name}//:rustfmt_bin\"".format(workspace_name = workspace_name)
 
     return _build_file_for_rust_toolchain_template.format(
         toolchain_name = name,
@@ -237,6 +253,7 @@ def BUILD_for_rust_toolchain(
         default_edition = default_edition,
         exec_triple = exec_triple,
         target_triple = target_triple,
+        rustfmt_label = rustfmt_label,
     )
 
 _build_file_for_toolchain_template = """\
@@ -268,14 +285,9 @@ def load_rustfmt(ctx):
     """
     target_triple = ctx.attr.exec_triple
 
-    if ctx.attr.rustfmt_version in ("beta", "nightly"):
-        iso_date = ctx.attr.iso_date
-    else:
-        iso_date = None
-
     load_arbitrary_tool(
         ctx,
-        iso_date = iso_date,
+        iso_date = ctx.attr.iso_date,
         target_triple = target_triple,
         tool_name = "rustfmt",
         tool_subdirectories = ["rustfmt-preview"],
@@ -308,27 +320,45 @@ def load_rust_compiler(ctx):
 
     return compiler_build_file
 
+def should_include_rustc_srcs(repository_ctx):
+    """Determing whether or not to include rustc sources in the toolchain.
+
+    Args:
+        repository_ctx (repository_ctx): The repository rule's context object
+
+    Returns:
+        bool: Whether or not to include rustc source files in a `rustc_toolchain`
+    """
+
+    # The environment variable will always take precedence over the attribute.
+    include_rustc_srcs_env = repository_ctx.os.environ.get("RULES_RUST_TOOLCHAIN_INCLUDE_RUSTC_SRCS")
+    if include_rustc_srcs_env != None:
+        return include_rustc_srcs_env.lower() in ["true", "1"]
+
+    return getattr(repository_ctx.attr, "include_rustc_srcs", False)
+
 def load_rust_src(ctx):
     """Loads the rust source code. Used by the rust-analyzer rust-project.json generator.
 
     Args:
         ctx (ctx): A repository_ctx.
     """
-    tool_suburl = produce_tool_suburl("rustc", "src", ctx.attr.version, ctx.attr.iso_date)
+    tool_suburl = produce_tool_suburl("rust-src", None, ctx.attr.version, ctx.attr.iso_date)
     static_rust = ctx.os.environ.get("STATIC_RUST_URL", "https://static.rust-lang.org")
     url = "{}/dist/{}.tar.gz".format(static_rust, tool_suburl)
 
-    tool_path = produce_tool_path("rustc", "src", ctx.attr.version)
+    tool_path = produce_tool_path("rust-src", None, ctx.attr.version)
     archive_path = tool_path + ".tar.gz"
     ctx.download(
         url,
         output = archive_path,
         sha256 = ctx.attr.sha256s.get(tool_suburl) or FILE_KEY_TO_SHA.get(tool_suburl) or "",
+        auth = _make_auth_dict(ctx, [url]),
     )
     ctx.extract(
         archive_path,
         output = "lib/rustlib/src",
-        stripPrefix = tool_path,
+        stripPrefix = "{}/rust-src/lib/rustlib/src/rust".format(tool_path),
     )
     ctx.file(
         "lib/rustlib/src/BUILD.bazel",
@@ -373,11 +403,12 @@ def load_rust_stdlib(ctx, target_triple):
             target_triple = target_triple,
         ),
         exec_triple = ctx.attr.exec_triple,
-        include_rustc_srcs = ctx.attr.include_rustc_srcs,
+        include_rustc_srcs = should_include_rustc_srcs(ctx),
         target_triple = target_triple,
         stdlib_linkflags = stdlib_linkflags,
         workspace_name = ctx.attr.name,
         default_edition = ctx.attr.edition,
+        include_rustfmt = not (not ctx.attr.rustfmt_version),
     )
 
     return stdlib_build_file + toolchain_build_file
@@ -434,10 +465,6 @@ def check_version_valid(version, iso_date, param_prefix = ""):
     if version in ("beta", "nightly") and not iso_date:
         fail("{param_prefix}iso_date must be specified if version is 'beta' or 'nightly'".format(param_prefix = param_prefix))
 
-    if version not in ("beta", "nightly") and iso_date:
-        # buildifier: disable=print
-        print("{param_prefix}iso_date is ineffective if an exact version is specified".format(param_prefix = param_prefix))
-
 def serialized_constraint_set_from_triple(target_triple):
     """Returns a string representing a set of constraints
 
@@ -461,12 +488,12 @@ def produce_tool_suburl(tool_name, target_triple, version, iso_date = None):
         target_triple: The rust-style target triple of the tool
         version: The version of the tool among "nightly", "beta', or an exact version.
         iso_date: The date of the tool (or None, if the version is a specific version).
-    """
 
-    if iso_date:
-        return "{}/{}-{}-{}".format(iso_date, tool_name, version, target_triple)
-    else:
-        return "{}-{}-{}".format(tool_name, version, target_triple)
+    Returns:
+        str: The fully qualified url path for the specified tool.
+    """
+    path = produce_tool_path(tool_name, target_triple, version)
+    return iso_date + "/" + path if (iso_date and version in ("beta", "nightly")) else path
 
 def produce_tool_path(tool_name, target_triple, version):
     """Produces a qualified Rust tool name
@@ -475,16 +502,27 @@ def produce_tool_path(tool_name, target_triple, version):
         tool_name: The name of the tool per static.rust-lang.org
         target_triple: The rust-style target triple of the tool
         version: The version of the tool among "nightly", "beta', or an exact version.
-    """
 
-    return "{}-{}-{}".format(tool_name, version, target_triple)
+    Returns:
+        str: The qualified path for the specified tool.
+    """
+    if not tool_name:
+        fail("No tool name was provided")
+    if not version:
+        fail("No tool version was provided")
+    return "-".join([e for e in [tool_name, version, target_triple] if e])
 
 def load_arbitrary_tool(ctx, tool_name, tool_subdirectories, version, iso_date, target_triple, sha256 = ""):
     """Loads a Rust tool, downloads, and extracts into the common workspace.
 
-    This function sources the tool from the Rust-lang static file server. The index is available
-    at: https://static.rust-lang.org/dist/index.html (or the path specified by
-    "${STATIC_RUST_URL}/dist/index.html" if the STATIC_RUST_URL envinronment variable is set).
+    This function sources the tool from the Rust-lang static file server. The index is available at:
+    - https://static.rust-lang.org/dist/channel-rust-stable.toml
+    - https://static.rust-lang.org/dist/channel-rust-beta.toml
+    - https://static.rust-lang.org/dist/channel-rust-nightly.toml
+
+    The environment variable `STATIC_RUST_URL` can be used to replace the schema and hostname of
+    the URLs used for fetching assets. `https://static.rust-lang.org/dist/channel-rust-stable.toml`
+    becomes `${STATIC_RUST_URL}/dist/channel-rust-stable.toml`
 
     Args:
         ctx (repository_ctx): A repository_ctx (no attrs required).
@@ -502,18 +540,20 @@ def load_arbitrary_tool(ctx, tool_name, tool_subdirectories, version, iso_date, 
                                              .../etc
             tool_subdirectories = ["clippy-preview", "rustc"]
         version (str): The version of the tool among "nightly", "beta', or an exact version.
-        iso_date (str): The date of the tool (or None, if the version is a specific version).
+        iso_date (str): The date of the tool (ignored if the version is a specific version).
         target_triple (str): The rust-style target triple of the tool
         sha256 (str, optional): The expected hash of hash of the Rust tool. Defaults to "".
     """
-
     check_version_valid(version, iso_date, param_prefix = tool_name + "_")
 
-    # N.B. See https://static.rust-lang.org/dist/index.html to find the tool_suburl for a given
+    # View the indices mentioned in the docstring to find the tool_suburl for a given
     # tool.
     tool_suburl = produce_tool_suburl(tool_name, target_triple, version, iso_date)
-    static_rust = ctx.os.environ.get("STATIC_RUST_URL", "https://static.rust-lang.org")
-    urls = ["{}/dist/{}.tar.gz".format(static_rust, tool_suburl)]
+    urls = []
+
+    static_rust_url_from_env = ctx.os.environ.get("STATIC_RUST_URL")
+    if static_rust_url_from_env:
+        urls.append("{}/dist/{}.tar.gz".format(static_rust_url_from_env, tool_suburl))
 
     for url in getattr(ctx.attr, "urls", DEFAULT_STATIC_RUST_URL_TEMPLATES):
         new_url = url.format(tool_suburl)
@@ -528,6 +568,7 @@ def load_arbitrary_tool(ctx, tool_name, tool_subdirectories, version, iso_date, 
         sha256 = getattr(ctx.attr, "sha256s", dict()).get(tool_suburl) or
                  FILE_KEY_TO_SHA.get(tool_suburl) or
                  sha256,
+        auth = _make_auth_dict(ctx, urls),
     )
     for subdirectory in tool_subdirectories:
         ctx.extract(
@@ -535,3 +576,12 @@ def load_arbitrary_tool(ctx, tool_name, tool_subdirectories, version, iso_date, 
             output = "",
             stripPrefix = "{}/{}".format(tool_path, subdirectory),
         )
+
+def _make_auth_dict(ctx, urls):
+    auth = getattr(ctx.attr, "auth", {})
+    if not auth:
+        return {}
+    ret = {}
+    for url in urls:
+        ret[url] = auth
+    return ret

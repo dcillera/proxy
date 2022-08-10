@@ -16,7 +16,7 @@
 # libFuzzer engine. The launch configuration is supplied by the launcher
 # script through environment variables.
 
-command_line=("$(readlink -f ${FUZZER_BINARY})")
+command_line=("$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' ${FUZZER_BINARY})")
 
 # libFuzzer flags.
 
@@ -29,13 +29,14 @@ if [[ "${FUZZER_TIMEOUT_SECS}" -gt 0 ]]; then
 fi
 if (( FUZZER_IS_REGRESSION )); then
     command_line+=("-runs=0")
+else
+    command_line+=("${FUZZER_OUTPUT_CORPUS_DIR}")
 fi
 
 # Corpus sources.
 
-command_line+=("${FUZZER_OUTPUT_CORPUS_DIR}")
 if [[ -n "${FUZZER_SEED_CORPUS_DIR}" ]]; then
     command_line+=("${FUZZER_SEED_CORPUS_DIR}")
 fi
 
-exec "${command_line[@]}"
+exec "${command_line[@]}" "$@"

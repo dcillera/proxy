@@ -17,6 +17,7 @@ load(
     "cc_external_rule_impl",
     "create_attrs",
     "expand_locations",
+    "expand_locations_and_make_variables",
 )
 load("//foreign_cc/private:transitions.bzl", "make_variant")
 load("//foreign_cc/private/framework:platform.bzl", "os_name")
@@ -74,7 +75,7 @@ def _create_configure_script(configureParameters):
         for arg in ctx.attr.args
     ])
 
-    user_env = expand_locations(ctx, ctx.attr.env, data)
+    user_env = expand_locations_and_make_variables(ctx, "env", data)
 
     make_commands = []
     prefix = "{} ".format(expand_locations(ctx, attrs.tool_prefix, data)) if attrs.tool_prefix else ""
@@ -223,7 +224,11 @@ configure_make = rule(
     output_to_genfiles = True,
     implementation = _configure_make,
     toolchains = [
+        "@rules_foreign_cc//toolchains:autoconf_toolchain",
+        "@rules_foreign_cc//toolchains:automake_toolchain",
         "@rules_foreign_cc//toolchains:make_toolchain",
+        "@rules_foreign_cc//toolchains:m4_toolchain",
+        "@rules_foreign_cc//toolchains:pkgconfig_toolchain",
         "@rules_foreign_cc//foreign_cc/private/framework:shell_toolchain",
         "@bazel_tools//tools/cpp:toolchain_type",
     ],

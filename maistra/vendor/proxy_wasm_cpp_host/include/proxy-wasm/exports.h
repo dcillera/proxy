@@ -30,6 +30,36 @@ class ContextBase;
 
 extern thread_local ContextBase *current_context_;
 
+/**
+ * WasmForeignFunction is used for registering host-specific host functions.
+ * A foreign function can be registered via RegisterForeignFunction and available
+ * to Wasm modules via proxy_call_foreign_function.
+ * @param wasm is the WasmBase which the Wasm module is running on.
+ * @param argument is the view to the argument to the function passed by the module.
+ * @param alloc_result is used to allocate the result data of this foreign function.
+ */
+using WasmForeignFunction = std::function<WasmResult(
+    WasmBase &wasm, std::string_view argument, std::function<void *(size_t size)> alloc_result)>;
+
+/**
+ * Used to get the foreign function registered via RegisterForeignFunction for a given name.
+ * @param function_name is the name used to lookup the foreign function table.
+ * @return a WasmForeignFunction if registered.
+ */
+WasmForeignFunction getForeignFunction(std::string_view function_name);
+
+/**
+ * RegisterForeignFunction is used to register a foreign function in the lookup table
+ * used internally in getForeignFunction.
+ */
+struct RegisterForeignFunction {
+  /**
+   * @param function_name is the key for this foreign function.
+   * @param f is the function instance.
+   */
+  RegisterForeignFunction(const std::string &function_name, WasmForeignFunction f);
+};
+
 namespace exports {
 
 template <typename Pairs> size_t pairsSize(const Pairs &result) {
@@ -44,12 +74,13 @@ template <typename Pairs> size_t pairsSize(const Pairs &result) {
 
 template <typename Pairs> void marshalPairs(const Pairs &result, char *buffer) {
   char *b = buffer;
-  *reinterpret_cast<uint32_t *>(b) = result.size();
+  bool reverse = "null" != contextOrEffectiveContext()->wasmVm()->getEngineName();
+  *reinterpret_cast<uint32_t *>(b) = reverse ? htowasm(result.size()) : result.size();
   b += sizeof(uint32_t);
   for (auto &p : result) {
-    *reinterpret_cast<uint32_t *>(b) = p.first.size();
+    *reinterpret_cast<uint32_t *>(b) = reverse ? htowasm(p.first.size()) : p.first.size();
     b += sizeof(uint32_t);
-    *reinterpret_cast<uint32_t *>(b) = p.second.size();
+    *reinterpret_cast<uint32_t *>(b) = reverse ? htowasm(p.second.size()) : p.second.size();
     b += sizeof(uint32_t);
   }
   for (auto &p : result) {
@@ -64,8 +95,8 @@ template <typename Pairs> void marshalPairs(const Pairs &result, char *buffer) {
 
 // ABI functions exported from host to wasm.
 
-Word get_configuration(Word address, Word size);
-Word get_status(Word status_code, Word address, Word size);
+Word get_configuration(Word value_ptr_ptr, Word value_size_ptr);
+Word get_status(Word code_ptr, Word value_ptr_ptr, Word value_size_ptr);
 Word log(Word level, Word address, Word size);
 Word get_log_level(Word result_level_uint32_ptr);
 Word get_property(Word path_ptr, Word path_size, Word value_ptr_ptr, Word value_size_ptr);
@@ -104,7 +135,7 @@ Word get_response_body_buffer_bytes(Word start, Word length, Word ptr_ptr, Word 
 Word http_call(Word uri_ptr, Word uri_size, Word header_pairs_ptr, Word header_pairs_size,
                Word body_ptr, Word body_size, Word trailer_pairs_ptr, Word trailer_pairs_size,
                Word timeout_milliseconds, Word token_ptr);
-Word define_metric(Word metric_type, Word name_ptr, Word name_size, Word result_ptr);
+Word define_metric(Word metric_type, Word name_ptr, Word name_size, Word metric_id_ptr);
 Word increment_metric(Word metric_id, int64_t offset);
 Word record_metric(Word metric_id, uint64_t value);
 Word get_metric(Word metric_id, Word result_uint64_ptr);
@@ -129,6 +160,11 @@ Word call_foreign_function(Word function_name, Word function_name_size, Word arg
 
 // Runtime environment functions exported from envoy to wasm.
 
+Word wasi_unstable_path_open(Word fd, Word dir_flags, Word path, Word path_len, Word oflags,
+                             int64_t fs_rights_base, int64_t fg_rights_inheriting, Word fd_flags,
+                             Word nwritten_ptr);
+Word wasi_unstable_fd_prestat_get(Word fd, Word buf_ptr);
+Word wasi_unstable_fd_prestat_dir_name(Word fd, Word path_ptr, Word path_len);
 Word wasi_unstable_fd_write(Word fd, Word iovs, Word iovs_len, Word nwritten_ptr);
 Word wasi_unstable_fd_read(Word, Word, Word, Word);
 Word wasi_unstable_fd_seek(Word, int64_t, Word, Word);
@@ -166,7 +202,7 @@ Word pthread_equal(Word left, Word right);
 #define FOR_ALL_WASI_FUNCTIONS(_f)                                                                 \
   _f(fd_write) _f(fd_read) _f(fd_seek) _f(fd_close) _f(fd_fdstat_get) _f(environ_get)              \
       _f(environ_sizes_get) _f(args_get) _f(args_sizes_get) _f(clock_time_get) _f(random_get)      \
-          _f(proc_exit)
+          _f(proc_exit) _f(path_open) _f(fd_prestat_get) _f(fd_prestat_dir_name)
 
 // Helpers to generate a stub to pass to VM, in place of a restricted proxy-wasm capability.
 #define _CREATE_PROXY_WASM_STUB(_fn)                                                               \

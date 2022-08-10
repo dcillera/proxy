@@ -19,6 +19,11 @@ constraint_value(
 )
 
 constraint_value(
+    name = "netbsd",
+    constraint_setting = ":os",
+)
+
+constraint_value(
     name = "openbsd",
     constraint_setting = ":os",
 )
@@ -89,5 +94,10 @@ constraint_value(
 # https://github.com/bytecodealliance/wasmtime/blob/main/docs/WASI-overview.md
 constraint_value(
     name = "wasi",
+    constraint_setting = ":os",
+)
+
+constraint_value(
+    name = "fuchsia",
     constraint_setting = ":os",
 )

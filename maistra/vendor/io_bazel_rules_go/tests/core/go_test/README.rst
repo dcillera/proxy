@@ -1,7 +1,7 @@
 Basic go_test functionality
 ===========================
 
-.. _go_test: /go/core.rst#_go_test
+.. _go_test: /docs/go/core/rules.md#_go_test
 .. _#1877: https://github.com/bazelbuild/rules_go/issues/1877
 .. _#34129: https:////github.com/golang/go/issues/34129
 .. _#2749: https://github.com/bazelbuild/rules_go/issues/2749
@@ -75,6 +75,14 @@ Checks that data dependencies, including those inherited from ``deps`` and
 ``embed``, are visible to tests at run-time. Source files should not be
 visible at run-time.
 
+test_fail_fast_test
+----------------
+
+Checks that ``--test_runner_fail_fast`` actually enables stopping test execution after
+the first failure.
+
+Verifies #3055.
+
 test_filter_test
 ----------------
 
@@ -111,3 +119,8 @@ wrapper_test
 
 Checks that a ``go_test`` can be executed by another test in a subdirectory.
 Verifies `#2749`_.
+
+fuzz_test
+---------
+
+Checks that a ``go_test`` with a fuzz target builds correctly.

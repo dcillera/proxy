@@ -6,7 +6,9 @@ go_library(
     importpath = "google.golang.org/protobuf/reflect/protoregistry",
     visibility = ["//visibility:public"],
     deps = [
+        "//internal/encoding/messageset",
         "//internal/errors",
+        "//internal/flags",
         "//reflect/protoreflect",
     ],
 )
@@ -20,8 +22,8 @@ alias(
 go_test(
     name = "protoregistry_test",
     srcs = ["registry_test.go"],
-    embed = [":protoregistry"],
     deps = [
+        ":protoregistry",
         "//encoding/prototext",
         "//internal/impl",
         "//internal/testprotos/registry",

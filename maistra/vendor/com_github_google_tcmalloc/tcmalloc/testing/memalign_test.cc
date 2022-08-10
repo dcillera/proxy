@@ -31,9 +31,9 @@
 #include <memory>
 #include <vector>
 
-#include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
 #include "absl/random/random.h"
+#include "benchmark/benchmark.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
@@ -181,10 +181,13 @@ TEST(MemalignTest, AlignedAlloc) {
 
 #ifndef NDEBUG
 TEST(MemalignTest, AlignedAllocDeathTest) {
-  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(0, 1)), "");
-  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(sizeof(void*) + 1, 1)),
-               "");
-  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(4097, 1)), "");
+  // Hide invalid alignment from -Wnon-power-of-two-alignment.
+  volatile size_t alignment = 0;
+  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(alignment, 1)), "");
+  alignment = sizeof(void*) + 1;
+  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(alignment, 1)), "");
+  alignment = 4097;
+  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(alignment, 1)), "");
 }
 #endif
 
@@ -268,6 +271,7 @@ TEST(MemalignTest, valloc) {
   }
 }
 
+#if defined(__BIONIC__) || defined(__GLIBC__) || defined(__NEWLIB__)
 TEST(MemalignTest, pvalloc) {
   const int pagesize = getpagesize();
 
@@ -286,6 +290,7 @@ TEST(MemalignTest, pvalloc) {
   ASSERT_TRUE(Valid(p, pagesize, 'y'));
   free(p);
 }
+#endif
 
 }  // namespace
 }  // namespace tcmalloc

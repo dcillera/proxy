@@ -1,5 +1,5 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
-load("//rust:rust.bzl", "rust_binary")
+load("//rust:defs.bzl", "rust_binary")
 load(":toolchain.bzl", "rust_proto_toolchain")
 
 package(default_visibility = ["//visibility:public"])
@@ -14,6 +14,21 @@ alias(
     actual = "//proto/raze:cargo_bin_protoc_gen_rust_grpc",
 )
 
+filegroup(
+    name = "distro",
+    srcs = glob([
+        "*.bzl",
+        "*.rs",
+    ]) + [
+        "//proto/patches:distro",
+        "//proto/raze:srcs",
+        "//proto/raze/patch:distro",
+        "//proto/raze/remote:srcs",
+        "BUILD.bazel",
+    ],
+    visibility = ["//:__subpackages__"],
+)
+
 toolchain_type(name = "toolchain")
 
 rust_binary(
@@ -25,12 +40,12 @@ rust_binary(
 toolchain(
     name = "default-proto-toolchain",
     toolchain = ":default-proto-toolchain-impl",
-    toolchain_type = "//proto:toolchain",
+    toolchain_type = "@rules_rust//proto:toolchain",
 )
 
 rust_proto_toolchain(name = "default-proto-toolchain-impl")
 
 bzl_library(
-    name = "rules",
+    name = "bzl_lib",
     srcs = glob(["**/*.bzl"]) + ["//proto/raze:crates.bzl"],
 )

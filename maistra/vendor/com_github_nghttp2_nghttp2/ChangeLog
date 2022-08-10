@@ -1,394 +1,486 @@
-commit 15bd71ed94ef2224a68b372c9aa33f3b3b1f7bbb (HEAD, tag: v1.42.0)
+commit 7af0c508be9cbec407268e2f546f597d268c104e (HEAD, tag: v1.46.0, origin/master, origin/HEAD, master)
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-11-23
+AuthorDate: 2021-10-19
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-11-23
+CommitDate: 2021-10-19
 
     Update manual pages
 
-commit a76b7a37fdf35756df6fa4bf26065f52d1d6d604
+commit f8474b25f02c4faa6d4250800a164227cf89b327
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-11-23
+AuthorDate: 2021-10-18
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-11-23
+CommitDate: 2021-10-18
 
-    Bump version number to 1.42.0, LT revision to 34:1:20
+    nghttpx: Reduce dgram size if sendmsg fails with EINVAL or EMSGSIZE
 
-commit 5cdf9ce19be275cabf9170087807a5ec834aa3b1
+commit 15a8d913ead5dff164ff0a4191b600b78eec1baf
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-11-23
+AuthorDate: 2021-10-17
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-11-23
+CommitDate: 2021-10-17
 
-    Update AUTHORS
+    examples/client: Enable ALPN
 
-commit 0fba09246b58bef296682fca51f6fda86f788ef2
+commit 65d3c9047f5a254a7690178b514655d7b7d7f6f6
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-11-16
+AuthorDate: 2021-10-17
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-11-16
+CommitDate: 2021-10-17
 
-    Build with GitHub Actions
+    Replace TLSv23_method with TLS_method
 
-commit 444fd8180d741b07d7b0318bf9de05d66c80058b
+commit 8c36971ea9679f1e7b05a4a3e6db654a6d9d9019
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-11-15
+AuthorDate: 2021-10-17
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-11-15
+CommitDate: 2021-10-17
 
-    Bump llhttp to 2.2.0
+    Compile with OPENSSL_NO_DEPRECATED and fix memory leaks
 
-commit f6b875e09deaf7fcd20448384de003ebb223fff3
+commit ba1dff187b902f2d09b184b66fc278501eb4656e
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-11-15
+AuthorDate: 2021-10-17
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-11-15
+CommitDate: 2021-10-17
 
-    Add missing cmake/FindSystemd.cmake to dist
+    Update bash_completion
 
-commit 694c0a4fb3e136c9ecfe1b0bc0c4464d7eec8d3c
+commit 8ecacc8ed290353cd4414d6a1e70757b0a0c6309
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-11-15
+AuthorDate: 2021-10-17
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-11-15
+CommitDate: 2021-10-17
 
-    cmake: Remove spdylay
+    Update manual pages
 
-commit da7959c2e8aee0efb0bd1c7b217eb896e30fa8ea
+commit 9d418966633a07ac7339ac50569e40c9f8d17d58
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-11-15
+AuthorDate: 2021-10-17
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-11-15
+CommitDate: 2021-10-17
 
-    nghttpx: Deal with the case when h2 backend is retired before it is initialized
+    nghttpx: Rename --frontend-quic-server-id to --quic-server-id
 
-commit 2e44f23b053dac556d222674d1dccd0341e72280
+commit 18d4a9e4ff5442b1108f9f07e307539ca2fa3a85
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-09-24
+AuthorDate: 2021-10-17
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-09-24
+CommitDate: 2021-10-17
 
-    Another mruby build fix
+    Update bash_completion
 
-commit f5351bee25a9e23058a2026a7d02c54f33e81f69
+commit 1745a306442a8811e3c0baa48c9953fdeab8abf4
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-09-24
+AuthorDate: 2021-10-17
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-09-24
+CommitDate: 2021-10-17
 
-    Fix `make clean` on mruby
+    Update manual pages
 
-commit a1999ab2a50d775c579dda58533861a1fea57e18
+commit 0cc7c598ff8ac21222c4f6d7840ce441444a9056
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-09-24
+AuthorDate: 2021-10-17
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-09-24
+CommitDate: 2021-10-17
 
-    Bump llhttp to 2.1.3
+    src: TLS_DEFAULT_CIPHERSUITES was deprecated in OpenSSL 3.0.0
 
-commit 1bccccc174c69e4acc0f0b379ed6e74dfd6eb91f
-Merge: 7b4de401 4e3c61ef
-Author:     Tatsuhiro Tsujikawa <404610+tatsuhiro-t@users.noreply.github.com>
-AuthorDate: 2020-09-24
-Commit:     GitHub <noreply@github.com>
-CommitDate: 2020-09-24
-
-    Merge pull request #1511 from nghttp2/nghttpx-accesslog-path-without-query
-    
-    nghttpx: Add accesslog variables to record request path without query
-
-commit 4e3c61ef4d63dd6c3c735e901ca798728e4e1fbd
+commit 8c4fbb86d81d9ba8226e2e41d2e247cd1aa62c36
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-09-19
+AuthorDate: 2021-10-17
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-09-19
+CommitDate: 2021-10-17
 
-    nghttpx: Add accesslog variables to record request path without query
-    
-    This commit the following variables to construct request line without
-    including query component:
-    
-    * $method
-    * $path
-    * $path_without_query
-    * $protocol_version
+    Bump version number to 1.46.0, LT revision to 35:1:21
 
-commit 7b4de401d25af49cb7b567877272994c3b6370f5
+commit 693431312c7b425d4aec0ae0887e331b075571f7
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-09-19
+AuthorDate: 2021-10-15
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-09-19
-
-    nghttpx: Check worker wide blocker before creating new downstream connection
-
-commit 1570d5f69404b02423e2da83325ac2df58f64b55
-Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-09-03
-Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-09-03
-
-    Bump llhttp to 2.1.1
-
-commit 181a007a34f5e430eeb93e128deb6d98f1e4df82
-Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-09-02
-Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-09-02
-
-    Fix mruby build
-    
-    Copy build_config.rb to build directory because now
-    build_config.rb.lock is created along side it.
-    
-    Define toolchain depending on CC environment variable.
-
-commit 7df73a5d9055dcb2fd744973a3295d3b619ffad7
-Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-09-02
-Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-09-02
-
-    nghttpx: mrb_run was removed
-
-commit b00fa5567cfcffdfdb1ddfbf4cd6e50ec41d723f
-Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-09-02
-Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-09-02
-
-    Bump mruby to 2.1.2
-
-commit 4ecdc2903d53e06273db61b4196ca54d30be489f
-Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-07-26
-Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-07-26
-
-    Amend 7a57b039a6bbbf93a0d2c27e0b95cc01c54504ad
-
-commit 7a57b039a6bbbf93a0d2c27e0b95cc01c54504ad
-Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-07-26
-Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-07-26
+CommitDate: 2021-10-15
 
     Fix cmake build
 
-commit 1ce628529b5d59a0bc9ba9f70a15a85a24b74afa
+commit f3fca2a19a95d67a2cdcaec6e1b72ccdc9cfafe0
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-07-26
+AuthorDate: 2021-10-15
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-07-26
+CommitDate: 2021-10-15
 
-    nghttp2_map backed by nghttp2_ksl
+    Update doc
 
-commit 6089353d526568878e29e67d676daeaf78bda338
+commit 1ce9efc64479ad5854aab00ebc2e317f878a421e
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-07-24
+AuthorDate: 2021-10-15
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-07-24
+CommitDate: 2021-10-15
 
-    Fix EXTRA_DIST
+    nghttpx: Set SCT data when built with boringssl
 
-commit db45fb483c0fd37ebfb38f3593ac9cc739ee8c94
+commit 7055501efd26a9b64d7d46206ded82af8d1ea2b8
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-07-24
+AuthorDate: 2021-10-15
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-07-24
+CommitDate: 2021-10-15
 
-    Fix sphinx warnings
+    src: Enable HTTP/3 with boringssl
+
+commit c790ee64a46d6f58fc034b719c3c7808d0473a9c
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-15
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-15
+
+    src: Prefer #ifdef for a single condition
+
+commit 9fb05d5ea258ac5707b852a856608b00193169d3
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-15
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-15
+
+    Fix compile error under mac os
+
+commit 3742acaf398d394a84e70f25894f17f86f8a1745
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-15
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-15
+
+    nghttpx: Fix wrong SSL_CTX object usage
+
+commit d8282de2290a265956dee94bfe068d2cca36747d
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-15
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-15
+
+    nghttpx: Respect !tls-no-postpone-early-data with boringssl
+
+commit 3a721a9dd510f607ca6f7d57efa8bfa467fa1b33
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-14
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-15
+
+    nghttpx: Send session ticket after handshake with boringssl
+
+commit 0b6092446b42cff5d3311a47bdb2185c647a71ea
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-14
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-14
+
+    src: Compile with boringssl for non-http3 build
+
+commit fa7a916ef3b6e518d7a65e6256a9ebab1bab83ce
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-10
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-10
+
+    nghttpx: Store initial_rtt in ev_tstamp for consistency
+
+commit 69c41871002c2ab9ac3fd4b7d720b2dda1197ec6
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-10
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-10
+
+    nghttpx: Add --frontend-quic-initial-rtt option
+
+commit 07128719c4048c0c478ea073d6a850105153ab79
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-10
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-10
+
+    Workaround broken version check in AX_PYTHON_DEVEL
+
+commit 7471fa627d4992112910b0d6f068ea966992095f
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-10
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-10
+
+    Update ax_python_devel.m4
+
+commit d7af5924ff749df7887144f395f954338da0cbdd
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-10
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-10
+
+    nghttpx: Extend QUIC server ID to 4 bytes
+
+commit a48e9d3d80c2c919286eac104d8df97e550bd7ca
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-06
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-06
+
+    Add bpf to clang-format
+
+commit 474a6db00c16a68463d39910c2a65a71041da0cb
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-06
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-06
+
+    Compile with gcc
+
+commit cb6aea9aa932b76fd0a57d7ace711c66c5d280f5
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-06
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-06
+
+    Compile with -DNDEBUG
+
+commit f4290c649761d42d17a5b09e7280d5b4c6229dd0
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-04
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-04
+
+    Fix compile error
+
+commit 086b85b8f971b372dc061ad52966a2d92804369a
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-04
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-04
+
+    nghttpx: Unload BPF program after setting up all QUIC listeners
+
+commit abee658a60806b5c96d5563ae9f5a06f90610725
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-02
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-02
+
+    nghttpx: Make sure that ngtcp2_conn_update_pkt_tx_time is called
+
+commit 87bdc2166768bde482644cdf0ac139d0869fc45a
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-10-02
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-10-02
+
+    nghttpx: Add --worker-process-grace-shutdown-period option
+
+commit 3e25ee818178eea37950f0825242f1c1465e55e8
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-09-29
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-09-29
+
+    256k memlock is not enough when reloading happens
+
+commit 0266c458a34d5ef7455cffe3bf34ec9b25db99c2
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-09-29
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-09-29
+
+    nghttpx: Add --max-worker-processes option
+
+commit d9c7631dcbf9651f7b9d7837a7c7ea1d82658ee6
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-09-29
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-09-29
+
+    Fix compile error
+
+commit df064fa2ba60d237b8f708eebe9ef6e762d06055
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-09-29
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-09-29
+
+    nghttpx: Unload BPF objects on reload to avoid running out of memlock
+
+commit 318e0c8447e2399e7c1e95d8ae8d00118ccea5f7
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-09-28
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-09-28
+
+    Guard msghdr_get_local_addr with ENABLE_HTTP3 macro
+
+commit 17d5503bf244fe484cd0332158d6dac21c9487b5
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-09-28
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-09-28
+
+    Update doc
+
+commit 19b4da64016f979b38a1d8eea127b153c2d22060
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-09-26
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-09-26
+
+    nghttpx: Support h3-29
+
+commit 886dc93f182aa7ab6570c77013f35494889a2269
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-09-26
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-09-26
+
+    nghttpx: Fail h3 connection attempt if no ALPN is negotiated
+
+commit 407df2822e4b989c53c04b4f7902d2a9210ad506
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-09-26
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-09-26
+
+    Remove check for UDP_SEGMENT
     
-    This commit fixes the following warning:
+    Check for UDP_SEGMENT is for debian 10, but now that we have debian
+    11, remove the check because it breaks cross-build.
+
+commit f6da0d342acc123ce0575146c4ab17f8b7e3146e
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-09-24
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-09-24
+
+    nghttpx: Fix crash if no keying materials are specified in file
+
+commit 7271537a1531bad7ca0e2153b1cf188b6462dda4
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-09-24
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-09-24
+
+    nghttpx: Add --rlimit-memlock option
+
+commit d0e8efac4dd0411a8dab8ede6ec5e664f73c77a2
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-09-24
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-09-24
+
+    nghttpx: Fix bug that reading QUIC secret file fails without line separator
+
+commit 27e6d56d83f9a0669ef901d5eac145fc2d6966af
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-09-23
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-09-23
+
+    Update doc
+
+commit c5122c12cb760e52eb37768a39f1114e07954200
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-09-23
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-09-23
+
+    Update bash_completion
+
+commit 282050c596715ac6872b16fa6bdf9720647cffcd
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-09-23
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-09-23
+
+    Update manual pages
+
+commit 308c73bfa2aa2e191d7a0bbbf2355ca7b2ef9b10
+Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+AuthorDate: 2021-09-22
+Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+CommitDate: 2021-09-23
+
+    nghttpx: Read QUIC keying materials from file
     
-    RemovedInSphinx30Warning: sphinx.locale.l_() is deprecated.  Please use `_()` instead.
+    Add --frontend-quic-secret-file to read QUIC keying materials from
+    file.  --frontend-quic-connection-id-encryption-key was removed in
+    favor of this new option.
 
-commit 4272dcac1da51f151c8cf7486ffd6e74a86aad1d
+commit c40309ae8e17d8cabb0b437fbfa3a24757a0cf46
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-07-24
+AuthorDate: 2021-09-22
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-07-24
+CommitDate: 2021-09-23
 
-    Update sphinx_rtd_theme
+    nghttpx: optarg should be allocated per configuration
 
-commit 32ac8bdf791eacd874b4d96e5d05c780f12cf646
+commit 1c7a4ecc7f7d1b289123a0575834eb00d16bd65f
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-07-24
+AuthorDate: 2021-09-21
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-07-24
+CommitDate: 2021-09-21
 
-    Add security process document
+    nghttpx: Rename generate_encrypted_quic_connection_id to generate_quic_connection_id
 
-commit 7f92b1e0e8c0822c72e009a279df4c8f0808ce27
-Merge: d5550e94 5497a1df
-Author:     Tatsuhiro Tsujikawa <404610+tatsuhiro-t@users.noreply.github.com>
-AuthorDate: 2020-07-19
-Commit:     GitHub <noreply@github.com>
-CommitDate: 2020-07-19
-
-    Merge pull request #1489 from tomaskrizek/doc-session-send
-    
-    doc: nghttp2_session_send is also affected by max concurrent streams
-
-commit d5550e946d0a34b6393576fc01270eb793d7b62b
+commit 80cc623eb2683299791b2988722ffcf0e6488d62
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-07-14
+AuthorDate: 2021-09-21
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-07-14
+CommitDate: 2021-09-21
 
-    Amend f1d8547b2923007d2a4095bb75d88f09000bd40b
-    
-    Better handling of tls and early data buffer
+    nghttpx: Allocate server id in Connection ID
 
-commit 62411f5a6e64bdaa8f85705fe07ecad154009c8d
+commit 89457fd9915159c746e5503e5da58bee9fc2445e
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-07-14
+AuthorDate: 2021-09-21
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-07-14
+CommitDate: 2021-09-21
 
-    nghttpx: Set client_handler to special frontend objects
+    More https
 
-commit e9465f0ee59ebcc5f52614e787459092067ee128
+commit 257043b8fbe8be9ea53f1a72350a06489b255ba9
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-07-14
+AuthorDate: 2021-09-21
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-07-14
+CommitDate: 2021-09-21
 
-    Revert "nghttpx: Fix ubsan error"
-    
-    This reverts commit 14dfeee4ed4fa9cf02594ca471404f5983fb666e.
+    Fix issue that libev cannot be found with autotools under mac osx
 
-commit 14dfeee4ed4fa9cf02594ca471404f5983fb666e
+commit 657d94b99283f3ec810d87b05b5f7bbc1ca50768
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-07-14
+AuthorDate: 2021-09-21
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-07-14
+CommitDate: 2021-09-21
 
-    nghttpx: Fix ubsan error
+    Fix compile error with libressl
 
-commit f1d8547b2923007d2a4095bb75d88f09000bd40b
+commit 06dc7d59641a91eaa7bad7ad3995311c87ec8eed
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-07-13
+AuthorDate: 2021-09-21
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-07-13
+CommitDate: 2021-09-21
 
-    nghttpx: Fix stall when TLS follows after proxy protocol
-    
-    This fixes that nghttpx stalls when TLS handshake and data follow
-    after proxy protocol header and no extra read notification is
-    triggered (e.g., just small 1 HTTP request).
+    Make sure that nghttp2 can be built from tar archive
 
-commit 7b46edb483a47a2a0d558034be8c44a49da35295
-Merge: b6b135c0 c8bf8c65
-Author:     Tatsuhiro Tsujikawa <404610+tatsuhiro-t@users.noreply.github.com>
-AuthorDate: 2020-06-28
-Commit:     GitHub <noreply@github.com>
-CommitDate: 2020-06-28
-
-    Merge pull request #1477 from nghttp2/ignore-rst-stream-to-idle-stream
-    
-    Don't send RST_STREAM to idle stream
-
-commit 5497a1dfa724b77fc28df47b6484e9499e4a66f9
-Author:     Tomas Krizek <tomas.krizek@nic.cz>
-AuthorDate: 2020-06-19
-Commit:     Tomas Krizek <tomas.krizek@nic.cz>
-CommitDate: 2020-06-19
-
-    doc: nghttp2_session_send is also affected by max concurrent streams
-    
-    Further clarify the function also takes into account maximum concurrent
-    streams.
-    
-    Closes #691
-    Closes #817
-
-commit c8bf8c65217080b65c2c917fdcd0d63a5eb23701
+commit b50079524b869be871c70e95264c82be7f864770
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-06-10
+AuthorDate: 2021-09-21
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-06-18
+CommitDate: 2021-09-21
 
-    Don't send RST_STREAM to idle stream
+    Always include optional files to EXTRA_DIST
 
-commit b6b135c060f0ee434a48198c311b35cde67d1642
-Merge: abe80e37 f76ac196
-Author:     Tatsuhiro Tsujikawa <404610+tatsuhiro-t@users.noreply.github.com>
-AuthorDate: 2020-06-18
-Commit:     GitHub <noreply@github.com>
-CommitDate: 2020-06-18
-
-    Merge pull request #1488 from tomaskrizek/doc-session-send-flow-control
-    
-    doc: clarify flow control behaviour for nghttp2_session_send()
-
-commit f76ac196271b4fe837cc90eb44f88e6110b59083
-Author:     Tomas Krizek <tomas.krizek@nic.cz>
-AuthorDate: 2020-06-17
-Commit:     Tomas Krizek <tomas.krizek@nic.cz>
-CommitDate: 2020-06-17
-
-    doc: clarify flow control behaviour for nghttp2_session_send()
-    
-    The previous wording implied that if send_callback doesn't return
-    NGHTTP2_ERR_WOULDBLOCK, this function would always send all
-    submitted requests / data. This is not the case, since flow control can
-    cause some data to remain queued until WINDOW_UPDATE is received.
-
-commit abe80e371e90b808c8ec5e0423b58fb12bf96913
+commit cdf1f269ff1336025a240a5db5cb3043d7db0249
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-06-10
+AuthorDate: 2021-09-21
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-06-10
+CommitDate: 2021-09-21
 
-    nghttpx: Fix logging integer
+    Add missing cmake files to EXTRA_DIST
 
-commit 1ecc7940b858f5f1d84658e8502a1dcba1ec4578
+commit 738b562f398e46e3af242150a7f2c92eaa24741f
 Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-06-06
+AuthorDate: 2021-09-20
 Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-06-06
+CommitDate: 2021-09-20
 
-    Fix compile error with gcc
-
-commit ab11b2bba5a6f24b87b14aeafb10d8964bda426b
-Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-06-05
-Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-06-05
-
-    clang-format
-
-commit 6d7f1256de281f8a793ecc383b78196373a2f9c5
-Merge: ec084acd cf094bd5
-Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-06-05
-Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-06-05
-
-    Merge branch 'asraa-fix-ubsan'
-
-commit cf094bd56bd3fbe0037fc72a2ebcee3cb7724b90
-Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-06-05
-Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-06-05
-
-    Fix ubsan applying zero offset to null pointer occurred in unit test
-
-commit 78a56cf66f3bbe29f70b19eeaff0dbc63908c677
-Author:     Asra Ali <asraa@google.com>
-AuthorDate: 2020-05-18
-Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-06-05
-
-    fix ubsan errors
-    
-    Signed-off-by: Asra Ali <asraa@google.com>
-
-commit ec084acdba9acd266c49d9b100a56e7a3bf5dcc3
-Author:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-AuthorDate: 2020-06-02
-Commit:     Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
-CommitDate: 2020-06-02
-
-    Bump version number to 1.42.0-DEV
+    Bump up version number to 1.46.0-DEV

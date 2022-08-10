@@ -22,9 +22,10 @@
 
 #include "tcmalloc/common.h"
 #include "tcmalloc/malloc_extension.h"
-#include "tcmalloc/span.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // REQUIRES: "alignment" is a power of two or "0" to indicate default alignment
 // REQUIRES: "alignment" and "size" <= kTagMask
@@ -42,7 +43,7 @@ namespace tcmalloc {
 // The returned pointer is guaranteed to satisfy GetMemoryTag(ptr) == "tag".
 //
 // Returns nullptr when out of memory.
-void *SystemAlloc(size_t bytes, size_t *actual_bytes, size_t alignment,
+void* SystemAlloc(size_t bytes, size_t* actual_bytes, size_t alignment,
                   MemoryTag tag);
 
 // Returns the number of times we failed to give pages back to the OS after a
@@ -58,28 +59,30 @@ int SystemReleaseErrors();
 // the address space next time they are touched, which can impact
 // performance.  (Only pages fully covered by the memory region will
 // be released, partial pages will not.)
-void SystemRelease(void *start, size_t length);
+void SystemRelease(void* start, size_t length);
 
 // This call is the inverse of SystemRelease: the pages in this range
 // are in use and should be faulted in.  (In principle this is a
 // best-effort hint, but in practice we will unconditionally fault the
 // range.)
 // REQUIRES: [start, start + length) is a range aligned to 4KiB boundaries.
-void SystemBack(void *start, size_t length);
+void SystemBack(void* start, size_t length);
 
 // Returns the current address region factory.
-AddressRegionFactory *GetRegionFactory();
+AddressRegionFactory* GetRegionFactory();
 
 // Sets the current address region factory to factory.
-void SetRegionFactory(AddressRegionFactory *factory);
+void SetRegionFactory(AddressRegionFactory* factory);
 
 // Reserves using mmap() a region of memory of the requested size and alignment,
 // with the bits specified by kTagMask set according to tag.
 //
 // REQUIRES: pagesize <= alignment <= kTagMask
 // REQUIRES: size <= kTagMask
-void *MmapAligned(size_t size, size_t alignment, MemoryTag tag);
+void* MmapAligned(size_t size, size_t alignment, MemoryTag tag);
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_SYSTEM_ALLOC_H_

@@ -20,12 +20,19 @@ label_flag(
     visibility = ["//visibility:public"],
 )
 
+label_flag(
+    name = "java_engine",
+    build_setting_default = "//fuzzing/engines:jazzer",
+    visibility = ["//visibility:public"],
+)
+
 string_flag(
     name = "cc_engine_instrumentation",
     build_setting_default = "none",
     values = [
         "none",
         "libfuzzer",
+        "jazzer",
         "honggfuzz",
         "oss-fuzz",
     ],
@@ -47,6 +54,9 @@ string_flag(
         # MSAN + origin tracking enabled.
         # Useful for debugging crash reproducers, 1.5-2x slower.
         "msan-origin-tracking",
+        # Undefined Behavior sanitizer (UBSAN).
+        # See https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html
+        "ubsan",
     ],
     visibility = ["//visibility:public"],
 )
@@ -63,5 +73,6 @@ bool_flag(
 
 exports_files([
     "cc_defs.bzl",
+    "java_defs.bzl",
     "instrum_opts.bzl",
 ])

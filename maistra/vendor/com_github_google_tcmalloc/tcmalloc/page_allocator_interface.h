@@ -26,7 +26,9 @@
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 class PageMap;
 
@@ -71,12 +73,9 @@ class PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
   // Prints stats about the page heap to *out.
-  virtual void Print(TCMalloc_Printer* out)
-      ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
+  virtual void Print(Printer* out) ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // Prints stats about the page heap in pbtxt format.
-  //
-  // TODO(b/130249686): Remove this one and make `Print` print in pbtxt.
   virtual void PrintInPbtxt(PbtxtRegion* region)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
@@ -89,6 +88,8 @@ class PageAllocatorInterface {
   MemoryTag tag_;  // The type of tagged memory this heap manages
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_PAGE_ALLOCATOR_INTERFACE_H_

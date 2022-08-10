@@ -9,7 +9,6 @@ go_library(
         "//encoding/protowire",
         "//internal/errors",
         "//reflect/protoreflect",
-        "//reflect/protoregistry",
     ],
 )
 

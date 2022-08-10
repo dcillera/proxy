@@ -20,5 +20,5 @@ alias(
 go_test(
     name = "bug1052_test",
     srcs = ["bug1052_test.go"],
-    embed = [":bug1052"],
+    deps = [":bug1052"],
 )

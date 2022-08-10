@@ -1,4 +1,3 @@
-load("@rules_cc//cc:defs.bzl", "objc_library")
 load(
     "//apple:macos.bzl",
     "macos_application",
@@ -96,6 +95,8 @@ macos_application(
         "-alias",
         "_main",
         "_linkopts_test_main",
+        "-exported_symbol",
+        "_linkopts_test_main",
     ],
     minimum_os_version = "10.10",
     tags = FIXTURE_TAGS,
@@ -132,6 +133,21 @@ macos_application(
     ],
 )
 
+macos_application(
+    name = "app_with_minimum_deployment_os_version",
+    bundle_extension = "xpc",
+    bundle_id = "com.google.example",
+    infoplists = [
+        "//test/starlark_tests/resources:Info.plist",
+    ],
+    minimum_deployment_os_version = "11.0",
+    minimum_os_version = "10.10",
+    tags = FIXTURE_TAGS,
+    deps = [
+        "//test/starlark_tests/resources:objc_main_lib",
+    ],
+)
+
 # ---------------------------------------------------------------------------------------
 
 macos_application(
@@ -155,6 +171,21 @@ macos_extension(
         "//test/starlark_tests/resources:all_nested": "Nested",
     },
     bundle_id = "com.google.example.ext",
+    infoplists = [
+        "//test/starlark_tests/resources:Info.plist",
+    ],
+    minimum_os_version = "10.10",
+    tags = FIXTURE_TAGS,
+    deps = [
+        "//test/starlark_tests/resources:objc_main_lib",
+    ],
+)
+
+macos_application(
+    name = "app_with_ext_and_symbols_in_bundle",
+    bundle_id = "com.google.example",
+    extensions = [":ext"],
+    include_symbols_in_bundle = True,
     infoplists = [
         "//test/starlark_tests/resources:Info.plist",
     ],

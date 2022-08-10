@@ -10,9 +10,10 @@ load("@bazel_skylib//lib:selects.bzl", "selects")
 
 # buildifier: disable=load
 load(
-    "@rules_rust//rust:rust.bzl",
+    "@rules_rust//rust:defs.bzl",
     "rust_binary",
     "rust_library",
+    "rust_proc_macro",
     "rust_test",
 )
 
@@ -45,6 +46,7 @@ rust_binary(
     ],
     tags = [
         "cargo-raze",
+        "crate-name=protobuf-bin-gen-rust-do-not-use",
         "manual",
     ],
     version = "2.8.2",
@@ -70,6 +72,7 @@ rust_binary(
     ],
     tags = [
         "cargo-raze",
+        "crate-name=protoc-gen-rust",
         "manual",
     ],
     version = "2.8.2",
@@ -86,7 +89,6 @@ rust_library(
     crate_features = [
     ],
     crate_root = "src/lib.rs",
-    crate_type = "lib",
     data = [],
     edition = "2015",
     rustc_flags = [
@@ -94,6 +96,7 @@ rust_library(
     ],
     tags = [
         "cargo-raze",
+        "crate-name=protobuf-codegen",
         "manual",
     ],
     version = "2.8.2",

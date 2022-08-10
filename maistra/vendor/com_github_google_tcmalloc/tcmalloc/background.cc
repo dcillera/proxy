@@ -17,92 +17,82 @@
 #include "absl/base/internal/sysinfo.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
-
-namespace tcmalloc {
-namespace {
-
-// Called by MallocExtension_Internal_ProcessBackgroundActions.
-//
-// We use a simple heuristic here:
-// We keep track of the set of CPUs that we are allowed to run on.  Whenever a
-// CPU is removed from this list, the next call to this routine will detect the
-// disappearance and call ReleaseCpuMemory on it.
-//
-// Note that this heuristic _explicitly_ does not reclaim from isolated cores
-// that this process may have set up specific affinities for -- as this thread
-// will never have been allowed to run there.
-cpu_set_t prev_allowed_cpus;
-void ReleasePerCpuMemoryToOS() {
-  cpu_set_t allowed_cpus;
-
-  // Only attempt reclaim when per-CPU caches are in use.  While
-  // ReleaseCpuMemory() itself is usually a no-op otherwise, we are experiencing
-  // failures in non-permissive sandboxes due to calls made to
-  // sched_getaffinity() below.  It is expected that a runtime environment
-  // supporting per-CPU allocations supports sched_getaffinity().
-  // See b/27247854.
-  if (!MallocExtension::PerCpuCachesActive()) {
-    return;
-  }
-
-  if (subtle::percpu::UsingFlatVirtualCpus()) {
-    // Our (real) CPU mask does not provide useful information about the state
-    // of our virtual CPU set.
-    return;
-  }
-
-  // This can only fail due to a sandbox or similar intercepting the syscall.
-  if (sched_getaffinity(0, sizeof(allowed_cpus), &allowed_cpus)) {
-    // We log periodically as start-up errors are frequently ignored and this is
-    // something we do want clients to fix if they are experiencing it.
-    Log(kLog, __FILE__, __LINE__,
-        "Unexpected sched_getaffinity() failure; errno ", errno);
-    return;
-  }
-
-  // Note:  This is technically not correct in the presence of hotplug (it is
-  // not guaranteed that NumCPUs() is an upper bound on CPU-number).  It is
-  // currently safe for Google systems.
-  const int num_cpus = absl::base_internal::NumCPUs();
-  for (int cpu = 0; cpu < num_cpus; cpu++) {
-    if (CPU_ISSET(cpu, &prev_allowed_cpus) && !CPU_ISSET(cpu, &allowed_cpus)) {
-      // This is a CPU present in the old mask, but not the new.  Reclaim.
-      MallocExtension::ReleaseCpuMemory(cpu);
-    }
-  }
-
-  // Update cached runnable CPUs for next iteration.
-  memcpy(&prev_allowed_cpus, &allowed_cpus, sizeof(cpu_set_t));
-}
-
-}  // namespace
-}  // namespace tcmalloc
+#include "tcmalloc/static_vars.h"
 
 // Release memory to the system at a constant rate.
 void MallocExtension_Internal_ProcessBackgroundActions() {
-  tcmalloc::MallocExtension::MarkThreadIdle();
+  using ::tcmalloc::tcmalloc_internal::Parameters;
+  using ::tcmalloc::tcmalloc_internal::Static;
 
-  // Initialize storage for ReleasePerCpuMemoryToOS().
-  CPU_ZERO(&tcmalloc::prev_allowed_cpus);
+  tcmalloc::MallocExtension::MarkThreadIdle();
 
   absl::Time prev_time = absl::Now();
   constexpr absl::Duration kSleepTime = absl::Seconds(1);
+
+  // Reclaim inactive per-cpu caches once per kCpuCacheReclaimPeriod.
+  //
+  // We use a longer 30 sec reclaim period to make sure that caches are indeed
+  // idle. Reclaim drains entire cache, as opposed to cache shuffle for instance
+  // that only shrinks a cache by a few objects at a time. So, we might have
+  // larger performance degradation if we use a shorter reclaim interval and
+  // drain caches that weren't supposed to.
+  constexpr absl::Duration kCpuCacheReclaimPeriod = absl::Seconds(30);
+  absl::Time last_reclaim = absl::Now();
+
+  // Shuffle per-cpu caches once per kCpuCacheShufflePeriod.
+  constexpr absl::Duration kCpuCacheShufflePeriod = absl::Seconds(5);
+  absl::Time last_shuffle = absl::Now();
+
+  // See if we should resize the slab once per kCpuCacheSlabResizePeriod. This
+  // period is coprime to kCpuCacheShufflePeriod and kCpuCacheReclaimPeriod.
+  constexpr absl::Duration kCpuCacheSlabResizePeriod = absl::Seconds(7);
+  absl::Time last_slab_resize_check = absl::Now();
+
   while (true) {
     absl::Time now = absl::Now();
     const ssize_t bytes_to_release =
-        static_cast<size_t>(tcmalloc::Parameters::background_release_rate()) *
+        static_cast<size_t>(Parameters::background_release_rate()) *
         absl::ToDoubleSeconds(now - prev_time);
     if (bytes_to_release > 0) {  // may be negative if time goes backwards
       tcmalloc::MallocExtension::ReleaseMemoryToSystem(bytes_to_release);
     }
 
-    tcmalloc::ReleasePerCpuMemoryToOS();
+    if (tcmalloc::MallocExtension::PerCpuCachesActive()) {
+      // Accelerate fences as part of this operation by registering this thread
+      // with rseq.  While this is not strictly required to succeed, we do not
+      // expect an inconsistent state for rseq (some threads registered and some
+      // threads unable to).
+      CHECK_CONDITION(tcmalloc::tcmalloc_internal::subtle::percpu::IsFast());
 
+      // Try to reclaim per-cpu caches once every kCpuCacheReclaimPeriod
+      // when enabled.
+      if (now - last_reclaim >= kCpuCacheReclaimPeriod) {
+        Static::cpu_cache().TryReclaimingCaches();
+        last_reclaim = now;
+      }
+
+      if (Parameters::shuffle_per_cpu_caches() &&
+          now - last_shuffle >= kCpuCacheShufflePeriod) {
+        Static::cpu_cache().ShuffleCpuCaches();
+        last_shuffle = now;
+      }
+
+      // See if we need to grow the slab once every kCpuCacheSlabResizePeriod
+      // when enabled.
+      if (Parameters::per_cpu_caches_dynamic_slab_enabled() &&
+          now - last_slab_resize_check >= kCpuCacheSlabResizePeriod) {
+        Static::cpu_cache().ResizeSlabIfNeeded();
+        last_slab_resize_check = now;
+      }
+    }
+
+    Static().sharded_transfer_cache().Plunder();
     prev_time = now;
     absl::SleepFor(kSleepTime);
   }

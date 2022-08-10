@@ -51,4 +51,6 @@ function bazel_test() {
 
 # Fix path to the vendor deps
 sed -i "s|=/work/|=$(pwd)/|" maistra/bazelrc-vendor
-sed -i "s|/work/|$(pwd)/|" maistra/vendor/proxy_wasm_cpp_sdk/toolchain/cc_toolchain_config.bzl
+# [dcillera] Commented because in the proxy_wasm_cpp_sdk package used in Envoy 2.3 
+# the "toolchain" folder is not present anymore
+#sed -i "s|/work/|$(pwd)/|" maistra/vendor/proxy_wasm_cpp_sdk/toolchain/cc_toolchain_config.bzl

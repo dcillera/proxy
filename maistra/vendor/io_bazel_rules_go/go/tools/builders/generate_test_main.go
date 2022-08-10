@@ -13,7 +13,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Bare bones Go testing support for Bazel.
+// Go testing support for Bazel.
+//
+// A Go test comprises three packages:
+//
+// 1. An internal test package, compiled from the sources of the library being
+//    tested and any _test.go files with the same package name.
+// 2. An external test package, compiled from _test.go files with a package
+//    name ending with "_test".
+// 3. A generated main package that imports both packages and initializes the
+//    test framework with a list of tests, benchmarks, examples, and fuzz
+//    targets read from source files.
+//
+// This action generates the source code for (3). The equivalent code for
+// 'go test' is in $GOROOT/src/cmd/go/internal/load/test.go.
 
 package main
 
@@ -21,6 +34,7 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/doc"
 	"go/parser"
 	"go/token"
@@ -49,13 +63,24 @@ type Example struct {
 
 // Cases holds template data.
 type Cases struct {
-	Imports    []*Import
-	Tests      []TestCase
-	Benchmarks []TestCase
-	Examples   []Example
-	TestMain   string
-	Coverage   bool
-	Pkgname    string
+	Imports     []*Import
+	Tests       []TestCase
+	Benchmarks  []TestCase
+	FuzzTargets []TestCase
+	Examples    []Example
+	TestMain    string
+	CoverMode   string
+	Pkgname     string
+}
+
+// Version returns whether v is a supported Go version (like "go1.18").
+func (c *Cases) Version(v string) bool {
+	for _, r := range build.Default.ReleaseTags {
+		if v == r {
+			return true
+		}
+	}
+	return false
 }
 
 const testMainTpl = `
@@ -80,7 +105,7 @@ import (
 	"testing"
 	"testing/internal/testdeps"
 
-{{if .Coverage}}
+{{if ne .CoverMode ""}}
 	"github.com/bazelbuild/rules_go/go/tools/coverdata"
 {{end}}
 
@@ -100,6 +125,14 @@ var benchmarks = []testing.InternalBenchmark{
 	{"{{.Name}}", {{.Package}}.{{.Name}} },
 {{end}}
 }
+
+{{if .Version "go1.18"}}
+var fuzzTargets = []testing.InternalFuzzTarget{
+{{range .FuzzTargets}}
+  {"{{.Name}}", {{.Package}}.{{.Name}} },
+{{end}}
+}
+{{end}}
 
 var examples = []testing.InternalExample{
 {{range .Examples}}
@@ -138,18 +171,29 @@ func main() {
 		}
 	}
 
+  {{if .Version "go1.18"}}
+	m := testing.MainStart(testdeps.TestDeps{}, testsInShard(), benchmarks, fuzzTargets, examples)
+  {{else}}
 	m := testing.MainStart(testdeps.TestDeps{}, testsInShard(), benchmarks, examples)
+  {{end}}
 
 	if filter := os.Getenv("TESTBRIDGE_TEST_ONLY"); filter != "" {
 		flag.Lookup("test.run").Value.Set(filter)
 	}
 
-	{{if .Coverage}}
-	if len(coverdata.Cover.Counters) > 0 {
-		testing.RegisterCover(coverdata.Cover)
+	if failfast := os.Getenv("TESTBRIDGE_TEST_RUNNER_FAIL_FAST"); failfast != "" {
+		flag.Lookup("test.failfast").Value.Set("true")
 	}
-	if coverageDat, ok := os.LookupEnv("COVERAGE_OUTPUT_FILE"); ok {
-		if testing.CoverMode() != "" {
+
+	{{if ne .CoverMode ""}}
+	if len(coverdata.Counters) > 0 {
+		testing.RegisterCover(testing.Cover{
+			Mode: "{{ .CoverMode }}",
+			Counters: coverdata.Counters,
+			Blocks: coverdata.Blocks,
+		})
+
+		if coverageDat, ok := os.LookupEnv("COVERAGE_OUTPUT_FILE"); ok {
 			flag.Lookup("test.coverprofile").Value.Set(coverageDat)
 		}
 	}
@@ -176,7 +220,7 @@ func genTestMain(args []string) error {
 	flags := flag.NewFlagSet("GoTestGenTest", flag.ExitOnError)
 	goenv := envFlags(flags)
 	out := flags.String("output", "", "output file to write. Defaults to stdout.")
-	coverage := flags.Bool("coverage", false, "whether coverage is supported")
+	coverMode := flags.String("cover_mode", "", "the coverage mode to use")
 	pkgname := flags.String("pkgname", "", "package name of test")
 	flags.Var(&imports, "import", "Packages to import")
 	flags.Var(&sources, "src", "Sources to process for tests")
@@ -226,8 +270,8 @@ func genTestMain(args []string) error {
 	}
 
 	cases := Cases{
-		Coverage: *coverage,
-		Pkgname:  *pkgname,
+		CoverMode: *coverMode,
+		Pkgname:   *pkgname,
 	}
 
 	testFileSet := token.NewFileSet()
@@ -313,6 +357,16 @@ func genTestMain(args []string) error {
 				}
 				pkgs[pkg] = true
 				cases.Benchmarks = append(cases.Benchmarks, TestCase{
+					Package: pkg,
+					Name:    fn.Name.Name,
+				})
+			}
+			if strings.HasPrefix(fn.Name.Name, "Fuzz") {
+				if selExpr.Sel.Name != "F" {
+					continue
+				}
+				pkgs[pkg] = true
+				cases.FuzzTargets = append(cases.FuzzTargets, TestCase{
 					Package: pkg,
 					Name:    fn.Name.Name,
 				})

@@ -1,5 +1,7 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 
+exports_files(["library.bzl"])
+
 filegroup(
     name = "all_rules",
     srcs = glob(["**/*.bzl"]),
@@ -16,13 +18,16 @@ filegroup(
 bzl_library(
     name = "binary",
     srcs = ["binary.bzl"],
-    visibility = ["//go:__subpackages__"],
+    visibility = [
+        "//docs:__subpackages__",
+        "//go:__subpackages__",
+    ],
     deps = [
-        "@io_bazel_rules_go//go/private:common",
-        "@io_bazel_rules_go//go/private:context",
-        "@io_bazel_rules_go//go/private:mode",
-        "@io_bazel_rules_go//go/private:providers",
-        "@io_bazel_rules_go//go/private/rules:transition",
+        "//go/private:common",
+        "//go/private:context",
+        "//go/private:mode",
+        "//go/private:providers",
+        "//go/private/rules:transition",
     ],
 )
 
@@ -30,10 +35,9 @@ bzl_library(
     name = "cgo",
     srcs = ["cgo.bzl"],
     visibility = ["//go:__subpackages__"],
-    # Don't list dependency on @rules_cc//cc:defs
     deps = [
-        "@io_bazel_rules_go//go/private:common",
-        "@io_bazel_rules_go//go/private:mode",
+        "//go/private:common",
+        "//go/private:mode",
     ],  # keep
 )
 
@@ -41,17 +45,20 @@ bzl_library(
     name = "info",
     srcs = ["info.bzl"],
     visibility = ["//go:__subpackages__"],
-    deps = ["@io_bazel_rules_go//go/private:context"],
+    deps = ["//go/private:context"],
 )
 
 bzl_library(
     name = "library",
     srcs = ["library.bzl"],
-    visibility = ["//go:__subpackages__"],
+    visibility = [
+        "//docs:__subpackages__",
+        "//go:__subpackages__",
+    ],
     deps = [
-        "@io_bazel_rules_go//go/private:common",
-        "@io_bazel_rules_go//go/private:context",
-        "@io_bazel_rules_go//go/private:providers",
+        "//go/private:common",
+        "//go/private:context",
+        "//go/private:providers",
     ],
 )
 
@@ -60,9 +67,9 @@ bzl_library(
     srcs = ["nogo.bzl"],
     visibility = ["//go:__subpackages__"],
     deps = [
-        "@io_bazel_rules_go//go/private:context",
-        "@io_bazel_rules_go//go/private:providers",
-        "@io_bazel_rules_go//go/private/rules:transition",
+        "//go/private:context",
+        "//go/private:providers",
+        "//go/private/rules:transition",
     ],
 )
 
@@ -70,16 +77,19 @@ bzl_library(
     name = "sdk",
     srcs = ["sdk.bzl"],
     visibility = ["//go:__subpackages__"],
-    deps = ["@io_bazel_rules_go//go/private:providers"],
+    deps = ["//go/private:providers"],
 )
 
 bzl_library(
     name = "source",
     srcs = ["source.bzl"],
-    visibility = ["//go:__subpackages__"],
+    visibility = [
+        "//docs:__subpackages__",
+        "//go:__subpackages__",
+    ],
     deps = [
-        "@io_bazel_rules_go//go/private:context",
-        "@io_bazel_rules_go//go/private:providers",
+        "//go/private:context",
+        "//go/private:providers",
     ],
 )
 
@@ -88,23 +98,26 @@ bzl_library(
     srcs = ["stdlib.bzl"],
     visibility = ["//go:__subpackages__"],
     deps = [
-        "@io_bazel_rules_go//go/private:context",
-        "@io_bazel_rules_go//go/private:providers",
+        "//go/private:context",
+        "//go/private:providers",
     ],
 )
 
 bzl_library(
     name = "test",
     srcs = ["test.bzl"],
-    visibility = ["//go:__subpackages__"],
+    visibility = [
+        "//docs:__subpackages__",
+        "//go:__subpackages__",
+    ],
     deps = [
+        "//go/private:common",
+        "//go/private:context",
+        "//go/private:mode",
+        "//go/private:providers",
+        "//go/private/rules:binary",
+        "//go/private/rules:transition",
         "@bazel_skylib//lib:structs",
-        "@io_bazel_rules_go//go/private:common",
-        "@io_bazel_rules_go//go/private:context",
-        "@io_bazel_rules_go//go/private:mode",
-        "@io_bazel_rules_go//go/private:providers",
-        "@io_bazel_rules_go//go/private/rules:binary",
-        "@io_bazel_rules_go//go/private/rules:transition",
     ],
 )
 
@@ -115,12 +128,12 @@ bzl_library(
         "//go:__subpackages__",
         "//proto:__pkg__",
     ],
-    # Don't list dependency on @io_bazel_rules_go_name_hack//:def
     deps = [
-        "@io_bazel_rules_go//go/private:mode",
-        "@io_bazel_rules_go//go/private:platforms",
-        "@io_bazel_rules_go//go/private:providers",
-    ],  # keep
+        "//go/platform:crosstool",
+        "//go/private:mode",
+        "//go/private:platforms",
+        "//go/private:providers",
+    ],
 )
 
 bzl_library(
@@ -128,10 +141,10 @@ bzl_library(
     srcs = ["wrappers.bzl"],
     visibility = ["//go:__subpackages__"],
     deps = [
-        "@io_bazel_rules_go//go/private/rules:binary",
-        "@io_bazel_rules_go//go/private/rules:cgo",
-        "@io_bazel_rules_go//go/private/rules:library",
-        "@io_bazel_rules_go//go/private/rules:test",
-        "@io_bazel_rules_go//go/private/rules:transition",
+        "//go/private/rules:binary",
+        "//go/private/rules:cgo",
+        "//go/private/rules:library",
+        "//go/private/rules:test",
+        "//go/private/rules:transition",
     ],
 )

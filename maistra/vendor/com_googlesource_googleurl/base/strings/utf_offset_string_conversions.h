@@ -96,9 +96,9 @@ BASE_EXPORT bool UTF8ToUTF16WithAdjustments(
     size_t src_len,
     std::u16string* output,
     gurl_base::OffsetAdjuster::Adjustments* adjustments);
-BASE_EXPORT std::u16string UTF8ToUTF16WithAdjustments(
+[[nodiscard]] BASE_EXPORT std::u16string UTF8ToUTF16WithAdjustments(
     const gurl_base::StringPiece& utf8,
-    gurl_base::OffsetAdjuster::Adjustments* adjustments) WARN_UNUSED_RESULT;
+    gurl_base::OffsetAdjuster::Adjustments* adjustments);
 // As above, but instead internally examines the adjustments and applies them
 // to |offsets_for_adjustment|.  Input offsets greater than the length of the
 // input string will be set to std::u16string::npos.  See comments by

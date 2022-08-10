@@ -1,6 +1,6 @@
 # Go support for Protocol Buffers
 
-[![GoDev](https://img.shields.io/static/v1?label=godev&message=reference&color=00add8)](https://pkg.go.dev/mod/google.golang.org/protobuf)
+[![Go Reference](https://pkg.go.dev/badge/google.golang.org/protobuf.svg)](https://pkg.go.dev/google.golang.org/protobuf)
 [![Build Status](https://travis-ci.org/protocolbuffers/protobuf-go.svg?branch=master)](https://travis-ci.org/protocolbuffers/protobuf-go)
 
 This project hosts the Go implementation for
@@ -68,6 +68,11 @@ Summary of the packages provided by this module:
     Package `protodesc` provides functionality for converting
     `descriptorpb.FileDescriptorProto` messages to/from the reflective
     `protoreflect.FileDescriptor`.
+*   [`reflect/protopath`](https://pkg.go.dev/google.golang.org/protobuf/reflect/protopath):
+    Package `protopath` provides a representation of a sequence of
+    protobuf reflection operations on a message.
+*   [`reflect/protorange`](https://pkg.go.dev/google.golang.org/protobuf/reflect/protorange):
+    Package `protorange` provides functionality to traverse a protobuf message.
 *   [`testing/protocmp`](https://pkg.go.dev/google.golang.org/protobuf/testing/protocmp):
     Package `protocmp` provides protobuf specific options for the `cmp` package.
 *   [`testing/protopack`](https://pkg.go.dev/google.golang.org/protobuf/testing/protopack):

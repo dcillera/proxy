@@ -161,7 +161,7 @@ bool Status::ErasePayload(absl::string_view type_url) {
 }
 
 void Status::ForEachPayload(
-    const std::function<void(absl::string_view, const absl::Cord&)>& visitor)
+    absl::FunctionRef<void(absl::string_view, const absl::Cord&)> visitor)
     const {
   if (auto* payloads = GetPayloads()) {
     bool in_reverse =
@@ -185,8 +185,11 @@ void Status::ForEachPayload(
 }
 
 const std::string* Status::EmptyString() {
-  static std::string* empty_string = new std::string();
-  return empty_string;
+  static union EmptyString {
+    std::string str;
+    ~EmptyString() {}
+  } empty = {{}};
+  return &empty.str;
 }
 
 constexpr const char Status::kMovedFromString[];
@@ -308,7 +311,7 @@ std::string Status::ToStringSlow(StatusToStringMode mode) const {
 }
 
 std::ostream& operator<<(std::ostream& os, const Status& x) {
-  os << x.ToString();
+  os << x.ToString(StatusToStringMode::kWithEverything);
   return os;
 }
 

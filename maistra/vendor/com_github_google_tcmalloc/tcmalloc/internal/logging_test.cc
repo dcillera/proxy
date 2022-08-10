@@ -20,10 +20,59 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-
-static std::string* log_buffer;
+#include "absl/base/casts.h"
+#include "absl/flags/flag.h"
+#include "absl/hash/hash_testing.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
+namespace {
+
+TEST(StackTraceTest, Hash) {
+  StackTrace s1, s2, s3, s4;
+
+  s1.requested_size = 1;
+  s1.requested_alignment = 2;
+  s1.allocated_size = 4;
+  s1.access_hint = 8;
+  s1.cold_allocated = false;
+  s1.depth = 2;
+  s1.stack[0] = absl::bit_cast<void*>(uintptr_t{0xAB});
+  s1.stack[1] = absl::bit_cast<void*>(uintptr_t{0xBA});
+
+  s2.requested_size = 8;
+  s2.requested_alignment = 4;
+  s2.allocated_size = 2;
+  s2.access_hint = 1;
+  s2.cold_allocated = true;
+  s2.depth = 2;
+  s2.stack[0] = absl::bit_cast<void*>(uintptr_t{0xBA});
+  s2.stack[1] = absl::bit_cast<void*>(uintptr_t{0xAB});
+
+  s3.requested_size = 8;
+  s3.requested_alignment = 4;
+  s3.allocated_size = 2;
+  s3.access_hint = 1;
+  s3.cold_allocated = true;
+  s3.depth = 3;
+  s3.stack[0] = absl::bit_cast<void*>(uintptr_t{0xBA});
+  s3.stack[1] = absl::bit_cast<void*>(uintptr_t{0xAB});
+  s3.stack[2] = absl::bit_cast<void*>(uintptr_t{0xCD});
+
+  s4.requested_size = 1;
+  s4.requested_alignment = 2;
+  s4.allocated_size = 4;
+  s4.access_hint = 16;
+  s4.cold_allocated = true;
+  s4.depth = 2;
+  s4.stack[0] = absl::bit_cast<void*>(uintptr_t{0xAB});
+  s4.stack[1] = absl::bit_cast<void*>(uintptr_t{0xBA});
+
+  EXPECT_TRUE(absl::VerifyTypeImplementsAbslHashCorrectly(
+      {StackTrace(), s1, s2, s3, s4}));
+}
+
+static std::string* log_buffer;
 
 static void RecordLogMessage(const char* msg, int length) {
   // Make tests less brittle by trimming trailing whitespace
@@ -57,6 +106,9 @@ TEST(InternalLogging, MessageFormatting) {
       reinterpret_cast<const void*>(static_cast<uintptr_t>(1025)));
   EXPECT_EQ("foo.cc:2] 0x401", *log_buffer);
 
+  Log(kLog, "foo.cc", 100, 1, 2, 3, 4, 5, 6);
+  EXPECT_EQ("foo.cc:100] 1 2 3 4 5 6", *log_buffer);
+
   Log(kLog, "foo.cc", 10, "hello", long_string.c_str());
   EXPECT_THAT(*log_buffer,
               testing::StartsWith(
@@ -84,6 +136,11 @@ TEST(InternalLogging, Assert) {
                "\\(2 \\+ 2\\) == 5 @( 0x[0-9a-f]+)+");
 }
 
+TEST(InternalLogging, Crash) {
+  EXPECT_DEATH(Crash(kCrash, "foo.cc", 100, "a", "b", "c", "d", "e", "f"),
+               "foo.cc:100] a b c d e f");
+}
+
 TEST(Printer, RequiredSpace) {
   const char kChunk[] = "0123456789";
   std::string expected;
@@ -91,7 +148,7 @@ TEST(Printer, RequiredSpace) {
   for (int i = 0; i < 10; i++) {
     int length = strlen(kChunk) * i + 1;
     std::unique_ptr<char[]> buf(new char[length]);
-    TCMalloc_Printer printer(buf.get(), length);
+    Printer printer(buf.get(), length);
 
     for (int j = 0; j < i; j++) {
       printer.printf("%s", kChunk);
@@ -109,4 +166,6 @@ TEST(Printer, RequiredSpace) {
   }
 }
 
+}  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

@@ -143,6 +143,7 @@ load(
     "cc_external_rule_impl",
     "create_attrs",
     "expand_locations",
+    "expand_locations_and_make_variables",
 )
 load("//foreign_cc/private:transitions.bzl", "make_variant")
 load(
@@ -262,7 +263,7 @@ def _create_configure_script(configureParameters):
         root = root,
         no_toolchain_file = no_toolchain_file,
         user_cache = dict(ctx.attr.cache_entries),
-        user_env = expand_locations(ctx, ctx.attr.env, data),
+        user_env = expand_locations_and_make_variables(ctx, "env", data),
         options = attrs.generate_args,
         cmake_commands = cmake_commands,
         cmake_prefix = prefix,
@@ -411,6 +412,8 @@ cmake = rule(
         "@rules_foreign_cc//toolchains:cmake_toolchain",
         "@rules_foreign_cc//toolchains:ninja_toolchain",
         "@rules_foreign_cc//toolchains:make_toolchain",
+        "@rules_foreign_cc//toolchains:m4_toolchain",
+        "@rules_foreign_cc//toolchains:pkgconfig_toolchain",
         "@rules_foreign_cc//foreign_cc/private/framework:shell_toolchain",
         "@bazel_tools//tools/cpp:toolchain_type",
     ],

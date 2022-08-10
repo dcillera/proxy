@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-command_line="$(readlink -f ${HONGGFUZZ_PATH})"
+command_line="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' ${HONGGFUZZ_PATH})"
 command_line+=("--workspace=${FUZZER_OUTPUT_ROOT}")
 
 if [[ -n "${FUZZER_SEED_CORPUS_DIR}" ]]; then
@@ -22,10 +22,12 @@ else
     command_line+=("--input=${FUZZER_OUTPUT_CORPUS_DIR}")
 fi
 if (( FUZZER_IS_REGRESSION )); then
-    # There is no regression mode in Honggfuzz, use minimization to a
-    # temporary output as the closest proxy.
-    command_line+=("--minimize")
+    # Dry-run-only mode - see https://github.com/google/honggfuzz/issues/296.
+    command_line+=("--mutations_per_run=0")
+    command_line+=("--verifier")
+    # Make the output more suitable for debugging.
     command_line+=("--verbose")
+    command_line+=("--keep_output")
 fi
 
 command_line+=("--crashdir=${FUZZER_ARTIFACTS_DIR}")
@@ -39,4 +41,4 @@ if [[ -n "${FUZZER_DICTIONARY_PATH}" ]]; then
 fi
 command_line+=("--" "${FUZZER_BINARY}")
 
-exec "${command_line[@]}"
+exec "${command_line[@]}" "$@"

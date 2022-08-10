@@ -31,6 +31,10 @@
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
+namespace tcmalloc {
+namespace tcmalloc_internal {
+
 // Variables for storing crash output.  Allocated statically since we
 // may not be able to heap-allocate while crashing.
 ABSL_CONST_INIT static absl::base_internal::SpinLock crash_lock(
@@ -39,8 +43,6 @@ static bool crashed = false;
 
 static const size_t kStatsBufferSize = 16 << 10;
 static char stats_buffer[kStatsBufferSize] = {0};
-
-namespace tcmalloc {
 
 static void WriteMessage(const char* msg, int length) {
   (void)::write(STDERR_FILENO, msg, length);
@@ -63,7 +65,8 @@ class Logger {
 };
 
 static Logger FormatLog(bool with_stack, const char* filename, int line,
-                        LogItem a, LogItem b, LogItem c, LogItem d) {
+                        LogItem a, LogItem b, LogItem c, LogItem d, LogItem e,
+                        LogItem f) {
   Logger state;
   state.p_ = state.buf_;
   state.end_ = state.buf_ + sizeof(state.buf_);
@@ -75,12 +78,14 @@ static Logger FormatLog(bool with_stack, const char* filename, int line,
       state.Add(a) &&
       state.Add(b) &&
       state.Add(c) &&
-      state.Add(d);
+      state.Add(d) &&
+      state.Add(e) &&
+      state.Add(f);
   // clang-format on
 
   if (with_stack) {
     state.trace.depth =
-        absl::GetStackTrace(state.trace.stack, tcmalloc::kMaxStackDepth, 1);
+        absl::GetStackTrace(state.trace.stack, kMaxStackDepth, 1);
     state.Add(LogItem("@"));
     for (int i = 0; i < state.trace.depth; i++) {
       state.Add(LogItem(state.trace.stack[i]));
@@ -99,16 +104,17 @@ static Logger FormatLog(bool with_stack, const char* filename, int line,
 
 ABSL_ATTRIBUTE_NOINLINE
 void Log(LogMode mode, const char* filename, int line, LogItem a, LogItem b,
-         LogItem c, LogItem d) {
-  Logger state = FormatLog(mode == kLogWithStack, filename, line, a, b, c, d);
+         LogItem c, LogItem d, LogItem e, LogItem f) {
+  Logger state =
+      FormatLog(mode == kLogWithStack, filename, line, a, b, c, d, e, f);
   int msglen = state.p_ - state.buf_;
   (*log_message_writer)(state.buf_, msglen);
 }
 
 ABSL_ATTRIBUTE_NOINLINE
 void Crash(CrashMode mode, const char* filename, int line, LogItem a, LogItem b,
-           LogItem c, LogItem d) {
-  Logger state = FormatLog(true, filename, line, a, b, c, d);
+           LogItem c, LogItem d, LogItem e, LogItem f) {
+  Logger state = FormatLog(true, filename, line, a, b, c, d, e, f);
 
   int msglen = state.p_ - state.buf_;
 
@@ -208,71 +214,49 @@ bool Logger::AddNum(uint64_t num, int base) {
   return AddStr(pos, end - pos);
 }
 
-}  // namespace tcmalloc
-
-PbtxtRegion::PbtxtRegion(TCMalloc_Printer* out, PbtxtRegionType type,
-                         int indent)
-    : out_(out), type_(type), indent_(indent) {
+PbtxtRegion::PbtxtRegion(Printer* out, PbtxtRegionType type)
+    : out_(out), type_(type) {
   switch (type_) {
     case kTop:
       break;
     case kNested:
-      out_->printf("{");
+      out_->Append("{");
       break;
   }
-  ++indent_;
 }
 
 PbtxtRegion::~PbtxtRegion() {
-  --indent_;
-  out_->printf("\n");
-  for (int i = 0; i < indent_; i++) {
-    out_->printf("  ");
-  }
   switch (type_) {
     case kTop:
       break;
     case kNested:
-      out_->printf("}");
+      out_->Append("}");
       break;
   }
 }
 
-void PbtxtRegion::NewLineAndIndent() {
-  out_->printf("\n");
-  for (int i = 0; i < indent_; i++) {
-    out_->printf("  ");
-  }
-}
-
-void PbtxtRegion::PrintU64(absl::string_view key, uint64_t value) {
-  NewLineAndIndent();
-  out_->printf("%s: %" PRIu64, key, value);
-}
-
 void PbtxtRegion::PrintI64(absl::string_view key, int64_t value) {
-  NewLineAndIndent();
-  out_->printf("%s: %" PRIi64, key, value);
+  out_->Append(" ", key, ": ", value);
 }
 
 void PbtxtRegion::PrintDouble(absl::string_view key, double value) {
-  NewLineAndIndent();
-  out_->printf("%s: %f", key, value);
+  out_->Append(" ", key, ": ", value);
 }
 
 void PbtxtRegion::PrintBool(absl::string_view key, bool value) {
-  NewLineAndIndent();
-  out_->printf("%s: %s", key, value ? "true" : "false");
+  out_->Append(" ", key, value ? ": true" : ": false");
 }
 
 void PbtxtRegion::PrintRaw(absl::string_view key, absl::string_view value) {
-  NewLineAndIndent();
-  out_->printf("%s: %s", key, value);
+  out_->Append(" ", key, ": ", value);
 }
 
 PbtxtRegion PbtxtRegion::CreateSubRegion(absl::string_view key) {
-  NewLineAndIndent();
-  out_->printf("%s ", key);
-  PbtxtRegion sub(out_, kNested, indent_);
+  out_->Append(" ", key, " ");
+  PbtxtRegion sub(out_, kNested);
   return sub;
 }
+
+}  // namespace tcmalloc_internal
+}  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

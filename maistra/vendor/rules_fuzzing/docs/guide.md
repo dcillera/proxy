@@ -144,6 +144,7 @@ The fuzzing rules library defines the following Bazel configuration flags that a
    * `asan`: [Address Sanitizer (ASAN)][asan-doc].
    * `msan`: [Memory Sanitizer (MSAN)][msan-doc].
    * `msan-origin-tracking`: MSAN with [origin tracking][msan-origin-tracking] enabled (useful for debugging crash reproducers; available separately due to it being 1.5-2x slower).
+   * `ubsan`: [Undefined Behavior Sanitizer (UBSAN)][ubsan-doc].
 
 * `--@rules_fuzzing//fuzzing:cc_fuzzing_build_mode` is a bool flag that specifies whether the special [`FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION` macro][fuzzing-build-mode] is defined during the build. This is turned on by default and most users should not need to change this flag.
 
@@ -161,21 +162,65 @@ $ bazel test \
     //examples:re2_fuzz_test
 ```
 
-This command is clearly too verbose to be used manually, so we recommend combining these options as a `--config` setting in your project's [`.bazelrc` file][bazelrc-docs]. For the example above, we can define an `asan-libfuzzer` config setting as follows:
-
-```
-build:asan-libfuzzer --//fuzzing:cc_engine=//fuzzing/engines:libfuzzer
-build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine_instrumentation=libfuzzer
-build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine_sanitizer=asan
-```
-
-To run your fuzz test, now you can simply invoke:
+This command is clearly too verbose to be used manually, so we recommend combining these options as a `--config` setting in your project's [`.bazelrc` file][bazelrc-docs]. For example, the command above can be replaced with:
 
 ```sh
 $ bazel test --config=asan-libfuzzer //examples:re2_fuzz_test
 ```
 
-You can add to your `.bazelrc` file as many configurations as you need. Feel free to use the [`.bazelrc` file of this repository](/.bazelrc) as a starting point.
+For convenience, we define below the most common configurations that you can pick and choose for your own `.bazelrc` file:
+
+```
+# --config=asan-libfuzzer
+build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine=@rules_fuzzing//fuzzing/engines:libfuzzer
+build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine_instrumentation=libfuzzer
+build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine_sanitizer=asan
+
+# --config=msan-libfuzzer
+build:msan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine=@rules_fuzzing//fuzzing/engines:libfuzzer
+build:msan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine_instrumentation=libfuzzer
+build:msan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine_sanitizer=msan
+
+# --config=ubsan-libfuzzer
+build:ubsan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine=@rules_fuzzing//fuzzing/engines:libfuzzer
+build:ubsan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine_instrumentation=libfuzzer
+build:ubsan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine_sanitizer=ubsan
+
+# --config=asan-honggfuzz
+build:asan-honggfuzz --@rules_fuzzing//fuzzing:cc_engine=@rules_fuzzing//fuzzing/engines:honggfuzz
+build:asan-honggfuzz --@rules_fuzzing//fuzzing:cc_engine_instrumentation=honggfuzz
+build:asan-honggfuzz --@rules_fuzzing//fuzzing:cc_engine_sanitizer=asan
+
+# --config=msan-honggfuzz
+build:msan-honggfuzz --@rules_fuzzing//fuzzing:cc_engine=@rules_fuzzing//fuzzing/engines:honggfuzz
+build:msan-honggfuzz --@rules_fuzzing//fuzzing:cc_engine_instrumentation=honggfuzz
+build:msan-honggfuzz --@rules_fuzzing//fuzzing:cc_engine_sanitizer=msan
+
+# --config=ubsan-honggfuzz
+build:ubsan-honggfuzz --@rules_fuzzing//fuzzing:cc_engine=@rules_fuzzing//fuzzing/engines:honggfuzz
+build:ubsan-honggfuzz --@rules_fuzzing//fuzzing:cc_engine_instrumentation=honggfuzz
+build:ubsan-honggfuzz --@rules_fuzzing//fuzzing:cc_engine_sanitizer=ubsan
+
+# --config=asan-replay
+build:asan-replay --@rules_fuzzing//fuzzing:cc_engine=@rules_fuzzing//fuzzing/engines:replay
+build:asan-replay --@rules_fuzzing//fuzzing:cc_engine_instrumentation=none
+build:asan-replay --@rules_fuzzing//fuzzing:cc_engine_sanitizer=asan
+
+# --config=jazzer (Jazzer without sanitizer - Java only)
+build:jazzer --@rules_fuzzing//fuzzing:java_engine=@rules_fuzzing//fuzzing/engines:jazzer
+build:jazzer --@rules_fuzzing//fuzzing:cc_engine_instrumentation=jazzer
+build:jazzer --@rules_fuzzing//fuzzing:cc_engine_sanitizer=none
+
+# --config=asan-jazzer
+build:asan-jazzer --@rules_fuzzing//fuzzing:java_engine=@rules_fuzzing//fuzzing/engines:jazzer
+build:asan-jazzer --@rules_fuzzing//fuzzing:cc_engine_instrumentation=jazzer
+build:asan-jazzer --@rules_fuzzing//fuzzing:cc_engine_sanitizer=asan
+
+# --config=ubsan-jazzer
+build:ubsan-jazzer --@rules_fuzzing//fuzzing:java_engine=@rules_fuzzing//fuzzing/engines:jazzer
+build:ubsan-jazzer --@rules_fuzzing//fuzzing:cc_engine_instrumentation=jazzer
+build:ubsan-jazzer --@rules_fuzzing//fuzzing:cc_engine_sanitizer=ubsan
+```
 
 ## Advanced topics
 
@@ -212,3 +257,4 @@ A fuzzing engine launcher script receives configuration through the following en
 [msan-doc]: https://clang.llvm.org/docs/MemorySanitizer.html
 [msan-origin-tracking]: https://clang.llvm.org/docs/MemorySanitizer.html#origin-tracking
 [seed-corpus]: https://github.com/google/fuzzing/blob/master/docs/good-fuzz-target.md#seed-corpus
+[ubsan-doc]: https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html

@@ -3,7 +3,7 @@
     <parent>
         <artifactId>pgv-java</artifactId>
         <groupId>io.envoyproxy.protoc-gen-validate</groupId>
-        <version>0.4.2-SNAPSHOT</version>
+        <version>0.6.4-SNAPSHOT</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
@@ -69,14 +69,14 @@
             <plugin>
                 <groupId>org.xolstice.maven.plugins</groupId>
                 <artifactId>protobuf-maven-plugin</artifactId>
-                <version>0.5.0</version>
+                <version>${protobuf.maven.plugin.version}</version>
                 <configuration>
                     <!--
                      ~ Embed generated validate.proto classes for all Protobuf 3.x versions. This is safe because
                      ~ Protobuf guarantees API stability for all 3.x version.
                      ~ https://github.com/protocolbuffers/protobuf/blob/17cc42a45aeab0f78a137fa6be6c36095db32e58/CHANGES.txt#L107-L122
                     -->
-                    <protocArtifact>com.google.protobuf:protoc:3.0.0:exe:${os.detected.classifier}</protocArtifact>
+                    <protocArtifact>com.google.protobuf:protoc:${protoc.version}:exe:${os.detected.classifier}</protocArtifact>
                 </configuration>
                 <executions>
                     <execution>

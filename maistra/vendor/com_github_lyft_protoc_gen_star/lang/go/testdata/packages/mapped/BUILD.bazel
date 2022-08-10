@@ -15,7 +15,7 @@ proto_library(
 
 go_proto_library(
     name = "mapped_go_proto",
-    importpath = "example.com/packages/mapped",
+    importpath = "./",
     proto = ":mapped_proto",
     visibility = ["//visibility:public"],
     deps = [
@@ -28,7 +28,7 @@ go_proto_library(
 go_library(
     name = "mapped",
     embed = [":mapped_go_proto"],
-    importpath = "example.com/packages/mapped",
+    importpath = "./",
     visibility = ["//visibility:public"],
 )
 

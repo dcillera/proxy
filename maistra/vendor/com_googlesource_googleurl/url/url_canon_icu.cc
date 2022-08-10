@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "polyfills/base/check.h"
+#include "base/memory/raw_ptr.h"
 #include <unicode/ucnv.h>
 #include <unicode/ucnv_cb.h>
 #include <unicode/utypes.h>
@@ -66,7 +67,7 @@ class AppendHandlerInstaller {
   }
 
  private:
-  UConverter* converter_;
+  raw_ptr<UConverter> converter_;
 
   UConverterFromUCallback old_callback_;
   const void* old_context_;

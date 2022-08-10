@@ -1,4 +1,4 @@
-# Copyright 2020 The Bazel Authors. All rights reserved.
+# Copyright 2021 The Bazel Authors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,79 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Packaging related providers."""
-
-PackageArtifactInfo = provider(
-    doc = """Metadata about a package artifact.""",
-    fields = {
-        "file_name": "The file name of the artifact.",
-        "label": "Label which produced it",
-    },
+load("//pkg:providers.bzl",
+    _PackageArtifactInfo = "PackageArtifactInfo",
+    _PackageDirsInfo = "PackageDirsInfo",
+    _PackageFilegroupInfo = "PackageFilegroupInfo",
+    _PackageFilesInfo = "PackageFilesInfo",
+    _PackageSymlinkInfo = "PackageSymlinkInfo",
+    _PackageVariablesInfo = "PackageVariablesInfo",
 )
 
-PackageVariablesInfo = provider(
-    doc = """Variables which may be substituted into package names and content.""",
-    fields = {
-        "values": "Dict of name/value pairs",
-    },
-)
-
-PackageFilesInfo = provider(
-    doc = """Provider representing the installation of one or more files to destination with attributes""",
-    fields = {
-        "attributes": """Attribute information, represented as a `dict`.
-
-Keys are strings representing attribute identifiers, values are
-arbitrary data structures that represent the associated data.  These are
-most often strings, but are not explicity defined.
-
-For known attributes and data type expectations, see the Common
-Attributes documentation in the `rules_pkg` reference.
-        """,
-
-        # This is a mapping of destinations to sources to allow for the same
-        # target to be installed to multiple locations within a package within a
-        # single provider.
-        "dest_src_map": """Map of file destinations to sources.
-
-        Sources are represented by bazel `File` structures.""",
-    },
-)
-
-PackageDirsInfo = provider(
-    doc = """Provider representing the creation of one or more directories in a package""",
-    fields = {
-        "attributes": """See `attributes` in PackageFilesInfo.""",
-        "dirs": """string list: installed directory names""",
-    },
-)
-
-PackageSymlinkInfo = provider(
-    doc = """Provider representing the creation of a single symbolic link in a package""",
-    fields = {
-        "attributes": """See `attributes` in PackageFilesInfo.""",
-        "destination": """string: Filesystem link 'name'""",
-        "source": """string or Label: Filesystem link 'target'.
-
-        TODO(nacl): Label sources not yet supported.
-        """,
-    },
-)
-
-# Grouping provider: the only one that needs to be consumed by packaging (or
-# other) rules that materialize paths.
-PackageFilegroupInfo = provider(
-    doc = """Provider representing a collection of related packaging providers,
-
-    In the "fields" documentation, "origin" refers to the label identifying the
-    where the provider was originally defined.  This can be used by packaging
-    rules to provide better diagnostics related to where packaging rules were
-    created.
-
-    """,
-    fields = {
-        "pkg_files": "list of tuples of (PackageFilesInfo, origin)",
-        "pkg_dirs": "list of tuples of (PackageDirsInfo, origin)",
-        "pkg_symlinks": "list of tuples of (PackageSymlinkInfo, origin)",
-    },
-)
+PackageArtifactInfo = _PackageArtifactInfo
+PackageDirsInfo = _PackageDirsInfo
+PackageFilegroupInfo = _PackageFilegroupInfo
+PackageFilesInfo = _PackageFilesInfo
+PackageSymlinkInfo = _PackageSymlinkInfo
+PackageVariablesInfo = _PackageVariablesInfo

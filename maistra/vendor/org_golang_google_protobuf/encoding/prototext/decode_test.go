@@ -226,6 +226,17 @@ s_string: "谷歌"
 		inputText:    `13:"hello"`,
 		wantErr:      "cannot specify field by number",
 	}, {
+		desc:         "unknown list field",
+		umo:          prototext.UnmarshalOptions{DiscardUnknown: true},
+		inputMessage: &pb2.Scalars{},
+		inputText:    `unknown_field: { strings: [ "" ] }`,
+	}, {
+		desc:         "unknown list of list field",
+		umo:          prototext.UnmarshalOptions{DiscardUnknown: true},
+		inputMessage: &pb2.Scalars{},
+		inputText:    `unknown_field: { strings: [ [ ] ] }`,
+		wantErr:      `(line 1:29): invalid scalar value: [`,
+	}, {
 		desc:         "proto3 message cannot parse field number",
 		umo:          prototext.UnmarshalOptions{DiscardUnknown: true},
 		inputMessage: &pb3.Scalars{},
@@ -1508,7 +1519,7 @@ opt_int32: 42
   opt_string: "not a messageset extension"
 }
 `,
-		wantErr: "unknown field: [pb2.FakeMessageSetExtension]",
+		wantErr: `unable to resolve [[pb2.FakeMessageSetExtension]]: found wrong type`,
 		skip:    !flags.ProtoLegacy,
 	}, {
 		desc:         "not real MessageSet 3",

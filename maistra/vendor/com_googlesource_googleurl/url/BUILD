@@ -4,6 +4,11 @@
 load("//build_config:build_config.bzl", "build_config")
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
+idna_src = select({
+    "//build_config:with_system_icu": ["url_idna_icu.cc"],
+    "//conditions:default": ["url_idna_ascii_only.cc"],
+})
+
 cc_library(
     name = "url",
     srcs = [
@@ -26,12 +31,11 @@ cc_library(
         "url_canon_stdstring.cc",
         "url_canon_stdurl.cc",
         "url_constants.cc",
-        "url_idna_icu.cc",
         "url_parse_file.cc",
         "url_parse_internal.h",
         "url_util.cc",
         "url_util_internal.h",
-    ],
+    ] + idna_src,
     hdrs = [
         "gurl.h",
         "third_party/mozilla/url_parse.h",
@@ -48,31 +52,6 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         "//base",
-        "//base/strings",
         "//polyfills",
-    ] + build_config.icuuc_deps,
-)
-
-cc_library(
-    name = "envoy_url",
-    srcs = [
-       "url_canon.cc",
-       "url_canon_internal.cc",
-       "url_canon_path.cc",
-       "url_canon_stdstring.cc",
     ],
-    hdrs = [
-       "third_party/mozilla/url_parse.h",
-       "url_canon.h",
-       "url_canon_internal.h",
-       "url_canon_stdstring.h",
-       "url_parse_internal.h",
-    ],
-    copts = build_config.default_copts,
-    visibility = ["//visibility:public"],
-    deps = [
-       "//base",
-       "//base/strings",
-       "//polyfills",
-    ]
 )

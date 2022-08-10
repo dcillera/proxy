@@ -22,8 +22,8 @@ alias(
 go_test(
     name = "tag_test",
     srcs = ["tag_test.go"],
-    embed = [":tag"],
     deps = [
+        ":tag",
         "//internal/filedesc",
         "//proto",
         "//reflect/protodesc",

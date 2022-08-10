@@ -16,7 +16,7 @@ go_library(
         "//internal/errors",
         "//internal/flags",
         "//internal/genid",
-        "//internal/mapsort",
+        "//internal/order",
         "//internal/pragma",
         "//internal/set",
         "//internal/strs",
@@ -39,8 +39,8 @@ go_test(
         "encode_test.go",
         "other_test.go",
     ],
-    embed = [":prototext"],
     deps = [
+        ":prototext",
         "//internal/detrand",
         "//internal/flags",
         "//internal/testprotos/test",

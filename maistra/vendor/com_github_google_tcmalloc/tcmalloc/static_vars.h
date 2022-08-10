@@ -27,20 +27,30 @@
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/arena.h"
+#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/explicitly_constructed.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/page_allocator.h"
 #include "tcmalloc/page_heap.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/peak_heap_tracker.h"
+#include "tcmalloc/sampled_allocation.h"
+#include "tcmalloc/sampled_allocation_recorder.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stack_trace_table.h"
 #include "tcmalloc/transfer_cache.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
+namespace tcmalloc_internal {
+
+using SampledAllocationRecorder = ::tcmalloc::tcmalloc_internal::SampleRecorder<
+    SampledAllocation, PageHeapAllocator<SampledAllocation>>;
 
 class CPUCache;
 class PageMap;
@@ -54,15 +64,28 @@ class Static {
   // Safe to call multiple times.
   static void InitIfNecessary();
 
+  // Central cache.
+  static CentralFreeList& central_freelist(int size_class) {
+    return transfer_cache().central_freelist(size_class);
+  }
   // Central cache -- an array of free-lists, one per size-class.
   // We have a separate lock per free-list to reduce contention.
   static TransferCacheManager& transfer_cache() { return transfer_cache_; }
+
+  // A per-cache domain TransferCache.
+  static ShardedTransferCacheManager& sharded_transfer_cache() {
+    return sharded_transfer_cache_;
+  }
 
   static SizeMap& sizemap() { return sizemap_; }
 
   static CPUCache& cpu_cache() { return cpu_cache_; }
 
   static PeakHeapTracker& peak_heap_tracker() { return peak_heap_tracker_; }
+
+  static NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() {
+    return numa_topology_;
+  }
 
   //////////////////////////////////////////////////////////////////////
   // In addition to the explicit initialization comment, the variables below
@@ -81,6 +104,10 @@ class Static {
     return guardedpage_allocator_;
   }
 
+  static PageHeapAllocator<SampledAllocation>& sampledallocation_allocator() {
+    return sampledallocation_allocator_;
+  }
+
   static PageHeapAllocator<Span>& span_allocator() { return span_allocator_; }
 
   static PageHeapAllocator<StackTrace>& stacktrace_allocator() {
@@ -91,22 +118,34 @@ class Static {
     return threadcache_allocator_;
   }
 
+  static SampledAllocationRecorder& sampled_allocation_recorder() {
+    return sampled_allocation_recorder_.get_mutable();
+  }
+
   // State kept for sampled allocations (/heapz support). The StatsCounter is
   // only written while holding pageheap_lock, so writes can safely use
   // LossyAdd and reads do not require locking.
   static SpanList sampled_objects_ ABSL_GUARDED_BY(pageheap_lock);
   ABSL_CONST_INIT static tcmalloc_internal::StatsCounter sampled_objects_size_;
+
   static PageHeapAllocator<StackTraceTable::Bucket>& bucket_allocator() {
     return bucket_allocator_;
   }
 
   static bool ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCacheActive() {
-    return cpu_cache_active_;
+    return cpu_cache_active_.load(std::memory_order_acquire);
   }
-  static void ActivateCPUCache() { cpu_cache_active_ = true; }
+  static void ActivateCPUCache() {
+    cpu_cache_active_.store(true, std::memory_order_release);
+  }
 
   static bool ABSL_ATTRIBUTE_ALWAYS_INLINE IsOnFastPath() {
     return
+        // These boolean operations do not require short-circuiting from &&.
+        // Bitwise AND of booleans triggers -Wbitwise-instead-of-logical, as
+        // this can be a common source of bugs.  Suppress this by casting to
+        // int first.
+
 #ifndef TCMALLOC_DEPRECATED_PERTHREAD
         // When the per-cpu cache is enabled, and the thread's current cpu
         // variable is initialized we will try to allocate from the per-cpu
@@ -114,7 +153,8 @@ class Static {
         // Checking the current cpu variable here allows us to remove it from
         // the fast-path, since we will fall back to the slow path until this
         // variable is initialized.
-        CPUCacheActive() & subtle::percpu::IsFastNoInit();
+        static_cast<int>(CPUCacheActive()) &
+        static_cast<int>(subtle::percpu::IsFastNoInit());
 #else
         !CPUCacheActive();
 #endif
@@ -141,26 +181,37 @@ class Static {
   ABSL_CONST_INIT static Arena arena_;
   static SizeMap sizemap_;
   ABSL_CONST_INIT static TransferCacheManager transfer_cache_;
+  ABSL_CONST_INIT static ShardedTransferCacheManager sharded_transfer_cache_;
   static CPUCache cpu_cache_;
   ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
+  static PageHeapAllocator<SampledAllocation> sampledallocation_allocator_;
   static PageHeapAllocator<Span> span_allocator_;
   static PageHeapAllocator<StackTrace> stacktrace_allocator_;
   static PageHeapAllocator<ThreadCache> threadcache_allocator_;
   static PageHeapAllocator<StackTraceTable::Bucket> bucket_allocator_;
   ABSL_CONST_INIT static std::atomic<bool> inited_;
-  static bool cpu_cache_active_;
+  ABSL_CONST_INIT static std::atomic<bool> cpu_cache_active_;
   ABSL_CONST_INIT static PeakHeapTracker peak_heap_tracker_;
+  ABSL_CONST_INIT static NumaTopology<kNumaPartitions, kNumBaseClasses>
+      numa_topology_;
 
   // PageHeap uses a constructor for initialization.  Like the members above,
   // we can't depend on initialization order, so pageheap is new'd
   // into this buffer.
   union PageAllocatorStorage {
+    constexpr PageAllocatorStorage() : extra(0) {}
+
     char memory[sizeof(PageAllocator)];
     uintptr_t extra;  // To force alignment
   };
 
   static PageAllocatorStorage page_allocator_;
   static PageMap pagemap_;
+
+  // Manages sampled allocations and allows iteration over samples free from
+  // the global pageheap_lock.
+  static ExplicitlyConstructed<SampledAllocationRecorder>
+      sampled_allocation_recorder_;
 };
 
 inline bool Static::IsInited() {
@@ -193,6 +244,8 @@ inline void Span::Delete(Span* span) {
   Static::span_allocator().Delete(span);
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_STATIC_VARS_H_

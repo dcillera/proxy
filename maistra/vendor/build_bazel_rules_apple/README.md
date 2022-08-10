@@ -13,6 +13,8 @@ in Bazel, and by the
 [`swift_library` rule](https://github.com/bazelbuild/rules_swift/blob/master/doc/rules.md#swift_library)
 available from [rules_swift](https://github.com/bazelbuild/rules_swift).
 
+If you are looking for an easy way to build mixed language frameworks, check out [rules_ios](https://github.com/bazel-ios/rules_ios).
+
 ## Reference documentation
 
 [Click here](https://github.com/bazelbuild/rules_apple/tree/master/doc)
@@ -30,8 +32,8 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 http_archive(
     name = "build_bazel_rules_apple",
-    sha256 = "84f34c95e68f65618b54c545f75e2df73559af47fb42ae28b17189fcebb7ed17",
-    url = "https://github.com/bazelbuild/rules_apple/releases/download/0.31.1/rules_apple.0.31.1.tar.gz",
+    sha256 = "a5f00fd89eff67291f6cd3efdc8fad30f4727e6ebb90718f3f05bbf3c3dd5ed7",
+    url = "https://github.com/bazelbuild/rules_apple/releases/download/0.33.0/rules_apple.0.33.0.tar.gz",
 )
 
 load(
@@ -47,6 +49,13 @@ load(
 )
 
 swift_rules_dependencies()
+
+load(
+    "@build_bazel_rules_swift//swift:extras.bzl",
+    "swift_rules_extra_dependencies",
+)
+
+swift_rules_extra_dependencies()
 
 load(
     "@build_bazel_apple_support//lib:repositories.bzl",
@@ -82,6 +91,7 @@ ios_application(
     bundle_id = "com.example.app",
     families = ["iphone", "ipad"],
     infoplists = [":Info.plist"],
+    minimum_os_version = "15.0",
     deps = [":Lib"],
 )
 ```

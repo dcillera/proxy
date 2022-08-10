@@ -15,6 +15,7 @@
 #include "absl/random/beta_distribution.h"
 
 #include <algorithm>
+#include <cfloat>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
@@ -53,7 +54,7 @@ using RealTypes =
     std::conditional<absl::numeric_internal::IsDoubleDouble(),
                      ::testing::Types<float, double>,
                      ::testing::Types<float, double, long double>>::type;
-TYPED_TEST_CASE(BetaDistributionInterfaceTest, RealTypes);
+TYPED_TEST_SUITE(BetaDistributionInterfaceTest, RealTypes);
 
 TYPED_TEST(BetaDistributionInterfaceTest, SerializeTest) {
   // The threshold for whether std::exp(1/a) is finite.
@@ -430,13 +431,13 @@ std::string ParamName(
   return absl::StrReplaceAll(name, {{"+", "_"}, {"-", "_"}, {".", "_"}});
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     TestSampleStatisticsCombinations, BetaDistributionTest,
     ::testing::Combine(::testing::Values(0.1, 0.2, 0.9, 1.1, 2.5, 10.0, 123.4),
                        ::testing::Values(0.1, 0.2, 0.9, 1.1, 2.5, 10.0, 123.4)),
     ParamName);
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     TestSampleStatistics_SelectedPairs, BetaDistributionTest,
     ::testing::Values(std::make_pair(0.5, 1000), std::make_pair(1000, 0.5),
                       std::make_pair(900, 1000), std::make_pair(10000, 20000),
@@ -558,6 +559,14 @@ TEST(BetaDistributionTest, StabilityTest) {
 // dependencies of the distribution change, such as RandU64ToDouble, then this
 // is also likely to change.
 TEST(BetaDistributionTest, AlgorithmBounds) {
+#if (defined(__i386__) || defined(_M_IX86)) && FLT_EVAL_METHOD != 0
+  // We're using an x87-compatible FPU, and intermediate operations are
+  // performed with 80-bit floats. This produces slightly different results from
+  // what we expect below.
+  GTEST_SKIP()
+      << "Skipping the test because we detected x87 floating-point semantics";
+#endif
+
   {
     absl::random_internal::sequence_urbg urbg(
         {0x7fbe76c8b4395800ull, 0x8000000000000000ull});

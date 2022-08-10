@@ -4,11 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [0.2.0] - 2022-04-08
+
+### Fixed
+
+- Fixed performance degradation with `wasm32-wasi` target in Rust v1.56.0
+  or newer by adding `proxy_wasm::main` macro that should be used instead
+  of custom `_start`, `_initialize` and/or `main` exports.
 
 ### Changed
 
 - Updated ABI to Proxy-Wasm ABI v0.2.1.
+
+### Added
+
+- Added support for calling foreign functions.
+  Thanks [@Gsantomaggio](https://github.com/Gsantomaggio)!
 
 ## [0.1.4] - 2021-07-01
 
@@ -59,7 +70,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Initial release.
 
 
-[Unreleased]: https://github.com/proxy-wasm/proxy-wasm-rust-sdk/compare/v0.1.4...HEAD
+[0.2.0]: https://github.com/proxy-wasm/proxy-wasm-rust-sdk/compare/v0.1.4...v0.2.0
 [0.1.4]: https://github.com/proxy-wasm/proxy-wasm-rust-sdk/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/proxy-wasm/proxy-wasm-rust-sdk/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/proxy-wasm/proxy-wasm-rust-sdk/compare/v0.1.1...v0.1.2

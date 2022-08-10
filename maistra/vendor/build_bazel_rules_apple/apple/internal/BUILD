@@ -24,7 +24,7 @@ apple_support_toolchain(
     imported_dynamic_framework_processor = "//tools/imported_dynamic_framework_processor",
     plisttool = "//tools/plisttool",
     process_and_sign_template = "//tools/bundletool:process_and_sign_template",
-    std_redirect_dylib = "@bazel_tools//tools/objc:StdRedirect.dylib",
+    provisioning_profile_tool = "//tools/provisioning_profile_tool",
     swift_stdlib_tool = "//tools/swift_stdlib_tool",
     # Used by the rule implementations, so it needs to be public; but
     # should be considered an implementation detail of the rules and
@@ -41,6 +41,7 @@ bzl_library(
     ],
     deps = [
         ":resources",
+        "//apple:providers",
         "//apple:utils",
         "@bazel_skylib//lib:collections",
         "@bazel_skylib//lib:dicts",
@@ -48,6 +49,19 @@ bzl_library(
         "@bazel_skylib//lib:paths",
         "@bazel_skylib//lib:sets",
         "@build_bazel_rules_swift//swift",
+    ],
+)
+
+bzl_library(
+    name = "apple_universal_binary",
+    srcs = ["apple_universal_binary.bzl"],
+    visibility = [
+        "//apple:__subpackages__",
+    ],
+    deps = [
+        ":linking_support",
+        ":rule_factory",
+        "//apple:providers",
     ],
 )
 
@@ -69,20 +83,6 @@ bzl_library(
     ],
     deps = [
         "//apple:providers",
-    ],
-)
-
-bzl_library(
-    name = "binary_support",
-    srcs = ["binary_support.bzl"],
-    visibility = [
-        "//apple:__subpackages__",
-    ],
-    deps = [
-        ":entitlement_rules",
-        ":exported_symbols_lists_rules",
-        ":platform_support",
-        ":swift_support",
     ],
 )
 
@@ -122,32 +122,17 @@ bzl_library(
 )
 
 bzl_library(
-    name = "entitlement_rules",
-    srcs = ["entitlement_rules.bzl"],
-    visibility = [
-        "//apple:__subpackages__",
-    ],
-    deps = [
-        ":apple_support_toolchain",
-        ":bundling_support",
-        ":linking_support",
-        ":platform_support",
-        ":resource_actions",
-        ":swift_support",
-        "//apple:common",
-        "//apple/internal/utils:defines",
-        "@build_bazel_apple_support//lib:apple_support",
-    ],
-)
-
-bzl_library(
     name = "entitlements_support",
     srcs = ["entitlements_support.bzl"],
     visibility = [
         "//apple:__subpackages__",
     ],
     deps = [
-        ":entitlement_rules",
+        ":apple_product_type",
+        ":resource_actions",
+        "//apple:common",
+        "//apple/internal/utils:defines",
+        "@build_bazel_apple_support//lib:apple_support",
     ],
 )
 
@@ -173,17 +158,6 @@ bzl_library(
     ],
     deps = [
         "//apple/internal/utils:defines",
-    ],
-)
-
-bzl_library(
-    name = "exported_symbols_lists_rules",
-    srcs = ["exported_symbols_lists_rules.bzl"],
-    visibility = [
-        "//apple:__subpackages__",
-    ],
-    deps = [
-        ":linking_support",
     ],
 )
 
@@ -244,6 +218,7 @@ bzl_library(
     deps = [
         ":rule_support",
         "@bazel_skylib//lib:collections",
+        "@build_bazel_apple_support//lib:lipo",
     ],
 )
 
@@ -314,12 +289,15 @@ bzl_library(
     deps = [
         "//apple/internal/partials:app_assets_validation",
         "//apple/internal/partials:apple_bundle_info",
+        "//apple/internal/partials:apple_symbols_file",
         "//apple/internal/partials:binary",
         "//apple/internal/partials:bitcode_symbols",
         "//apple/internal/partials:clang_rt_dylibs",
+        "//apple/internal/partials:codesigning_dossier",
         "//apple/internal/partials:debug_symbols",
         "//apple/internal/partials:embedded_bundles",
         "//apple/internal/partials:extension_safe_validation",
+        "//apple/internal/partials:framework_header_modulemap",
         "//apple/internal/partials:framework_headers",
         "//apple/internal/partials:framework_import",
         "//apple/internal/partials:framework_provider",
@@ -328,8 +306,8 @@ bzl_library(
         "//apple/internal/partials:provisioning_profile",
         "//apple/internal/partials:resources",
         "//apple/internal/partials:settings_bundle",
-        "//apple/internal/partials:static_framework_header_modulemap",
         "//apple/internal/partials:swift_dylibs",
+        "//apple/internal/partials:swift_framework",
         "//apple/internal/partials:swift_static_framework",
         "//apple/internal/partials:watchos_stub",
     ],
@@ -377,6 +355,7 @@ bzl_library(
         "//apple/internal/resource_actions:actool",
         "//apple/internal/resource_actions:datamodel",
         "//apple/internal/resource_actions:ibtool",
+        "//apple/internal/resource_actions:intent",
         "//apple/internal/resource_actions:mlmodel",
         "//apple/internal/resource_actions:plist",
         "//apple/internal/resource_actions:png",
@@ -407,11 +386,10 @@ bzl_library(
     deps = [
         ":apple_product_type",
         ":apple_support_toolchain",
-        ":entitlement_rules",
         ":rule_support",
         "//apple:common",
         "//apple:providers",
-        "//apple/internal/aspects:framework_import_aspect",
+        "//apple/internal/aspects:framework_provider_aspect",
         "//apple/internal/aspects:resource_aspect",
         "//apple/internal/aspects:swift_static_framework_aspect",
         "//apple/internal/testing:apple_test_bundle_support",
@@ -455,6 +433,18 @@ bzl_library(
     deps = [
         ":intermediates",
         "@build_bazel_apple_support//lib:apple_support",
+    ],
+)
+
+bzl_library(
+    name = "swift_info_support",
+    srcs = ["swift_info_support.bzl"],
+    visibility = [
+        "//apple:__subpackages__",
+    ],
+    deps = [
+        "//apple/internal:intermediates",
+        "@bazel_skylib//lib:sets",
     ],
 )
 
@@ -526,6 +516,34 @@ bzl_library(
     ],
 )
 
+bzl_library(
+    name = "xcframework_rules",
+    srcs = ["xcframework_rules.bzl"],
+    visibility = [
+        "//apple:__subpackages__",
+    ],
+    deps = [
+        ":apple_product_type",
+        ":experimental",
+        ":intermediates",
+        ":linking_support",
+        ":outputs",
+        ":partials",
+        ":platform_support",
+        ":processor",
+        ":resources",
+        ":rule_factory",
+        ":rule_support",
+        ":swift_support",
+        ":transition_support",
+        "//apple:providers",
+        "//apple/internal/aspects:resource_aspect",
+        "@build_bazel_apple_support//lib:apple_support",
+        "@build_bazel_apple_support//lib:lipo",
+        "@build_bazel_rules_swift//swift",
+    ],
+)
+
 # Consumed by bazel tests.
 filegroup(
     name = "for_bazel_tests",
@@ -533,6 +551,7 @@ filegroup(
     srcs = glob(["**"]) + [
         "//apple/internal/aspects:for_bazel_tests",
         "//apple/internal/partials:for_bazel_tests",
+        "//apple/internal/providers:for_bazel_tests",
         "//apple/internal/resource_actions:for_bazel_tests",
         "//apple/internal/resource_rules:for_bazel_tests",
         "//apple/internal/templates:for_bazel_tests",

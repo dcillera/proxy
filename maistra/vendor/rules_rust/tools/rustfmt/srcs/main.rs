@@ -75,9 +75,12 @@ fn query_rustfmt_targets(options: &Config) -> Vec<String> {
 /// arguments to use when formatting the sources of those targets.
 fn generate_rustfmt_target_manifests(options: &Config, targets: &[String]) {
     let build_args = vec![
-        "build",
-        "--aspects=@rules_rust//rust:defs.bzl%rustfmt_aspect",
-        "--output_groups=rustfmt_manifest",
+        "build".to_owned(),
+        format!(
+            "--aspects={}//rust:defs.bzl%rustfmt_aspect",
+            env!("ASPECT_REPOSITORY")
+        ),
+        "--output_groups=rustfmt_manifest".to_owned(),
     ];
 
     let child = Command::new(&options.bazel)
@@ -102,11 +105,11 @@ fn generate_rustfmt_target_manifests(options: &Config, targets: &[String]) {
 fn apply_rustfmt(options: &Config, targets: &[String]) {
     // Ensure the targets are first built and a manifest containing `rustfmt`
     // arguments are generated before formatting source files.
-    generate_rustfmt_target_manifests(&options, &targets);
+    generate_rustfmt_target_manifests(options, targets);
 
     for target in targets.iter() {
         // Replace any `:` characters and strip leading slashes
-        let target_path = target.replace(":", "/").trim_start_matches('/').to_owned();
+        let target_path = target.replace(':', "/").trim_start_matches('/').to_owned();
 
         // Find a manifest for the current target. Not all targets will have one
         let manifest = options.workspace.join("bazel-bin").join(format!(

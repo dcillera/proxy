@@ -18,17 +18,27 @@
 // auto-generated files as the result a crash happens in this test rather than
 // in a host binary executed from blaze.
 
+#include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
 
 #include <algorithm>
 #include <new>
 
+#include "tcmalloc/internal_malloc_extension.h"
+
 const size_t kMem = 10 << 20;
 const size_t kMin = 8;
-void *blocks[kMem / kMin];
+void* blocks[kMem / kMin];
 
 int main() {
+  const char* env = getenv("FORCE_CPU_CACHES");
+  if (env != nullptr && strcmp(env, "1") == 0) {
+    if (&TCMalloc_Internal_ForceCpuCacheActivation != nullptr) {
+      TCMalloc_Internal_ForceCpuCacheActivation();
+    }
+  }
+
   size_t step = 16;
   // malloc-free
   for (size_t size = kMin; size <= kMem; size += step) {

@@ -4,6 +4,7 @@ package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
+# TODO(b/180572694): Remove ios_sim_arm64 after platforms based toolchain resolution supported.
 # Create a set of public config_settings that can be used in select()s.
 [
     config_setting(
@@ -18,12 +19,14 @@ licenses(["notice"])
         "ios_x86_64",
         "ios_armv7",
         "ios_arm64",
+        "ios_sim_arm64",
         "tvos_x86_64",
         "tvos_arm64",
         "watchos_i386",
         "watchos_arm64",
         "watchos_armv7k",
         "watchos_arm64_32",
+        "watchos_x86_64",
     ]
 ]
 
@@ -32,6 +35,8 @@ bzl_library(
     srcs = ["apple.bzl"],
     deps = [
         "//apple/internal:apple_framework_import",
+        "//apple/internal:apple_universal_binary",
+        "//apple/internal:xcframework_rules",
     ],
 )
 
@@ -41,6 +46,14 @@ bzl_library(
     deps = [
         "//apple/internal:linking_support",
         "//apple/internal:rule_factory",
+    ],
+)
+
+bzl_library(
+    name = "aspects",
+    srcs = ["aspects.bzl"],
+    deps = [
+        "//apple/internal/aspects:framework_provider_aspect",
     ],
 )
 
@@ -65,7 +78,6 @@ bzl_library(
     srcs = ["ios.bzl"],
     deps = [
         "//apple/internal:apple_product_type",
-        "//apple/internal:binary_support",
         "//apple/internal:ios_rules",
         "//apple/internal/testing:apple_test_assembler",
         "//apple/internal/testing:build_test_rules",
@@ -74,16 +86,27 @@ bzl_library(
 )
 
 bzl_library(
+    name = "ios.doc",
+    srcs = ["ios.doc.bzl"],
+    deps = ["ios"],
+)
+
+bzl_library(
     name = "macos",
     srcs = ["macos.bzl"],
     deps = [
-        "//apple/internal:binary_support",
         "//apple/internal:macos_binary_support",
         "//apple/internal:macos_rules",
         "//apple/internal/testing:apple_test_assembler",
         "//apple/internal/testing:build_test_rules",
         "//apple/internal/testing:macos_rules",
     ],
+)
+
+bzl_library(
+    name = "macos.doc",
+    srcs = ["macos.doc.bzl"],
+    deps = ["macos"],
 )
 
 bzl_library(
@@ -101,10 +124,10 @@ bzl_library(
     srcs = ["resources.bzl"],
     deps = [
         "//apple/internal/resource_rules:apple_bundle_import",
+        "//apple/internal/resource_rules:apple_core_data_model",
         "//apple/internal/resource_rules:apple_core_ml_library",
         "//apple/internal/resource_rules:apple_resource_bundle",
         "//apple/internal/resource_rules:apple_resource_group",
-        "@rules_cc//cc:defs.bzl",
     ],
 )
 
@@ -112,12 +135,17 @@ bzl_library(
     name = "tvos",
     srcs = ["tvos.bzl"],
     deps = [
-        "//apple/internal:binary_support",
         "//apple/internal:tvos_rules",
         "//apple/internal/testing:apple_test_assembler",
         "//apple/internal/testing:build_test_rules",
         "//apple/internal/testing:tvos_rules",
     ],
+)
+
+bzl_library(
+    name = "tvos.doc",
+    srcs = ["tvos.doc.bzl"],
+    deps = ["tvos"],
 )
 
 bzl_library(
@@ -137,9 +165,10 @@ bzl_library(
     name = "watchos",
     srcs = ["watchos.bzl"],
     deps = [
-        "//apple/internal:binary_support",
         "//apple/internal:watchos_rules",
+        "//apple/internal/testing:apple_test_assembler",
         "//apple/internal/testing:build_test_rules",
+        "//apple/internal/testing:watchos_rules",
     ],
 )
 

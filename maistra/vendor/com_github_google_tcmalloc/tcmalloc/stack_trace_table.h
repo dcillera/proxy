@@ -26,19 +26,20 @@
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
-class StackTraceTable final : public tcmalloc_internal::ProfileBase {
+class StackTraceTable final : public ProfileBase {
  public:
   // If merge is true, traces with identical size and stack are merged
   // together.  Else they are kept distinct.
   // If unsample is true, Iterate() will scale counts to report estimates
   // of the true total assuming traces were added by the sampler.
-  // REQUIRES: L < pageheap_lock
-  StackTraceTable(ProfileType type, int64_t period, bool merge, bool unsample);
+  StackTraceTable(ProfileType type, int64_t period, bool merge, bool unsample)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
-  // REQUIRES: L < pageheap_lock
-  ~StackTraceTable() override;
+  ~StackTraceTable() override ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // base::Profile methods.
   void Iterate(
@@ -47,6 +48,9 @@ class StackTraceTable final : public tcmalloc_internal::ProfileBase {
   int64_t Period() const override { return period_; }
 
   ProfileType Type() const override { return type_; }
+
+  void SetDuration(absl::Duration duration) { duration_ = duration; }
+  absl::Duration Duration() const override { return duration_; }
 
   // Adds stack trace "t" to table with the specified count.
   // The count is a floating point value to reduce rounding
@@ -73,10 +77,9 @@ class StackTraceTable final : public tcmalloc_internal::ProfileBase {
   int bucket_total() const { return bucket_total_; }
 
  private:
-  static constexpr int kHashTableSize = 1 << 14;  // => table_ is 128k
-
   ProfileType type_;
   int64_t period_;
+  absl::Duration duration_ = absl::ZeroDuration();
   int bucket_mask_;
   int depth_total_;
   Bucket** table_;
@@ -88,6 +91,8 @@ class StackTraceTable final : public tcmalloc_internal::ProfileBase {
   int num_buckets() const { return bucket_mask_ + 1; }
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_STACK_TRACE_TABLE_H_

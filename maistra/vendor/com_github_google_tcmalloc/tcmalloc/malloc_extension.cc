@@ -26,8 +26,10 @@
 #include "absl/base/attributes.h"
 #include "absl/base/internal/low_level_alloc.h"
 #include "absl/memory/memory.h"
+#include "absl/time/time.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal_malloc_extension.h"
+#include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
 
@@ -73,6 +75,14 @@ ProfileType Profile::Type() const {
   }
 
   return impl_->Type();
+}
+
+absl::Duration Profile::Duration() const {
+  if (!impl_) {
+    return absl::ZeroDuration();
+  }
+
+  return impl_->Duration();
 }
 
 AddressRegion::~AddressRegion() {}
@@ -334,6 +344,32 @@ void MallocExtension::SetMaxTotalThreadCacheBytes(int64_t value) {
 #endif
 }
 
+absl::Duration MallocExtension::GetSkipSubreleaseInterval() {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_GetSkipSubreleaseInterval == nullptr) {
+    return absl::ZeroDuration();
+  }
+
+  absl::Duration value;
+  MallocExtension_Internal_GetSkipSubreleaseInterval(&value);
+  return value;
+#else
+  return absl::ZeroDuration();
+#endif
+}
+
+void MallocExtension::SetSkipSubreleaseInterval(absl::Duration value) {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_SetSkipSubreleaseInterval == nullptr) {
+    return;
+  }
+
+  MallocExtension_Internal_SetSkipSubreleaseInterval(value);
+#else
+  (void)value;
+#endif
+}
+
 absl::optional<size_t> MallocExtension::GetNumericProperty(
     absl::string_view property) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
@@ -392,9 +428,17 @@ size_t MallocExtension::ReleaseCpuMemory(int cpu) {
 
 void MallocExtension::ProcessBackgroundActions() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (&MallocExtension_Internal_ProcessBackgroundActions != nullptr) {
+  if (NeedsProcessBackgroundActions()) {
     MallocExtension_Internal_ProcessBackgroundActions();
   }
+#endif
+}
+
+bool MallocExtension::NeedsProcessBackgroundActions() {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  return &MallocExtension_Internal_ProcessBackgroundActions != nullptr;
+#else
+  return false;
 #endif
 }
 
@@ -439,7 +483,20 @@ tcmalloc_size_returning_operator_new(size_t size) {
 }
 
 ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
+tcmalloc_size_returning_operator_new_hot_cold(size_t size,
+                                              tcmalloc::hot_cold_t) {
+  return {::operator new(size), size};
+}
+
+ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
 tcmalloc_size_returning_operator_new_nothrow(size_t size) noexcept {
+  void* p = ::operator new(size, std::nothrow);
+  return {p, p ? size : 0};
+}
+
+ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
+tcmalloc_size_returning_operator_new_hot_cold_nothrow(
+    size_t size, tcmalloc::hot_cold_t) noexcept {
   void* p = ::operator new(size, std::nothrow);
   return {p, p ? size : 0};
 }

@@ -6,6 +6,7 @@
 #define POLYFILLS_BASE_METRICS_HISTOGRAM_MACROS_H_
 
 #define UMA_HISTOGRAM_ENUMERATION(name, ...) do {} while(false)
+#define UMA_HISTOGRAM_BOOLEAN(name, ...) do {} while(false)
 
 #endif  /* POLYFILLS_BASE_METRICS_HISTOGRAM_MACROS_H_ */
 

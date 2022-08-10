@@ -1,4 +1,3 @@
-load("@rules_cc//cc:defs.bzl", "objc_library")
 load(
     "//apple:ios.bzl",
     "ios_application",
@@ -9,6 +8,8 @@ load(
     "watchos_dynamic_framework",
     "watchos_extension",
     "watchos_static_framework",
+    "watchos_ui_test",
+    "watchos_unit_test",
 )
 load(
     "//apple:apple.bzl",
@@ -66,6 +67,7 @@ watchos_extension(
     minimum_os_version = "4.0",
     provisioning_profile = "//test/testdata/provisioning:integration_testing_ios.mobileprovision",
     resources = [
+        "//test/starlark_tests/resources:complications_watchos",
         "//test/starlark_tests/resources:example_filegroup",
         "//test/starlark_tests/resources:localization",
         "//test/starlark_tests/resources:resource_bundle",
@@ -501,5 +503,30 @@ watchos_dynamic_framework(
     tags = FIXTURE_TAGS,
     deps = [
         "//test/starlark_tests/resources:objc_lib_with_resources",
+    ],
+)
+
+watchos_ui_test(
+    name = "ui_test",
+    infoplists = [
+        "//test/starlark_tests/resources:WatchosAppInfo.plist",
+    ],
+    minimum_os_version = "7.4",
+    tags = FIXTURE_TAGS,
+    test_host = ":app",
+    deps = [
+        "//test/starlark_tests/resources:objc_test_lib",
+    ],
+)
+
+watchos_unit_test(
+    name = "unit_test",
+    infoplists = [
+        "//test/starlark_tests/resources:WatchosAppInfo.plist",
+    ],
+    minimum_os_version = "7.4",
+    tags = FIXTURE_TAGS,
+    deps = [
+        "//test/starlark_tests/resources:objc_test_lib",
     ],
 )

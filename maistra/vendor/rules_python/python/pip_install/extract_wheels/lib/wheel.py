@@ -55,7 +55,13 @@ class Wheel:
             # Calculate the location of the entry_points.txt file
             metadata = self.metadata
             name = "{}-{}".format(metadata.name.replace("-", "_"), metadata.version)
-            entry_points_path = os.path.join("{}.dist-info".format(name), "entry_points.txt")
+
+            # Note that the zipfile module always uses the forward slash as
+            # directory separator, even on Windows, so don't use os.path.join
+            # here.  Reference for Python 3.10:
+            # https://github.com/python/cpython/blob/3.10/Lib/zipfile.py#L355.
+            # TODO: use zipfile.Path once 3.8 is our minimum supported version
+            entry_points_path = "{}.dist-info/entry_points.txt".format(name)
 
             # If this file does not exist in the wheel, there are no entry points
             if entry_points_path not in whl.namelist():
@@ -63,9 +69,18 @@ class Wheel:
 
             # Parse the avaialble entry points
             config = configparser.ConfigParser()
-            config.read_string(whl.read(entry_points_path).decode("utf-8"))
-            if "console_scripts" in config.sections():
-                return dict(config["console_scripts"])
+            try:
+                config.read_string(whl.read(entry_points_path).decode("utf-8"))
+                if "console_scripts" in config.sections():
+                    return dict(config["console_scripts"])
+
+            # TODO: It's unclear what to do in a situation with duplicate sections or options.
+            # For now, we treat the config file as though it contains no scripts. For more
+            # details on the config parser, see:
+            # https://docs.python.org/3.7/library/configparser.html#configparser.ConfigParser
+            # https://docs.python.org/3.7/library/configparser.html#configparser.Error
+            except configparser.Error:
+                pass
 
         return dict()
 
@@ -102,7 +117,7 @@ class Wheel:
 
 
 def get_dist_info(wheel_dir: str) -> str:
-    """"Returns the relative path to the dist-info directory if it exists.
+    """ "Returns the relative path to the dist-info directory if it exists.
 
     Args:
          wheel_dir: The root of the extracted wheel directory.

@@ -3,11 +3,19 @@
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load("@bazel_tools//tools/build_defs/repo:utils.bzl", "maybe")
 
+# Avoid a load from @bazel_skylib repository as users don't necessarily have it installed
+load("//third_party/github.com/bazelbuild/bazel-skylib/lib:versions.bzl", "versions")
+
 _RULE_DEPS = [
     (
         "pypi__click",
         "https://files.pythonhosted.org/packages/76/0a/b6c5f311e32aeb3b406e03c079ade51e905ea630fc19d1262a46249c1c86/click-8.0.1-py3-none-any.whl",
         "fba402a4a47334742d782209a7c79bc448911afe1149d07bdabdf480b3e2f4b6",
+    ),
+    (
+        "pypi__colorama",
+        "https://files.pythonhosted.org/packages/44/98/5b86278fbbf250d239ae0ecb724f8572af1c91f4a11edf4d36a206189440/colorama-0.4.4-py2.py3-none-any.whl",
+        "9f47eda37229f68eee03b24b9748937c7dc3868f906e8ba69fbcbdd3bc5dc3e2",
     ),
     (
         "pypi__pip",
@@ -63,6 +71,13 @@ def pip_install_dependencies():
 
     (However we call it from pip_install, making it optional for users to do so.)
     """
+
+    # We only support Bazel LTS and rolling releases.
+    # Give the user an obvious error to upgrade rather than some obscure missing symbol later.
+    # It's not guaranteed that users call this function, but it's used by all the pip fetch
+    # repository rules so it's likely that most users get the right error.
+    versions.check("4.0.0")
+
     for (name, url, sha256) in _RULE_DEPS:
         maybe(
             http_archive,

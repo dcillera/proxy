@@ -58,23 +58,27 @@
 #include <utility>
 #include <vector>
 
-#include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/casts.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/base/macros.h"
 #include "absl/base/optimization.h"
+#include "absl/container/flat_hash_set.h"
+#include "absl/numeric/bits.h"
 #include "absl/random/random.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_format.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/utility/utility.h"
-#include "tcmalloc/internal/bits.h"
+#include "benchmark/benchmark.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/new_extension.h"
+#include "tcmalloc/testing/test_allocator_harness.h"
 #include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
 
@@ -116,8 +120,8 @@ static const size_t kMaxTestSize = ~static_cast<size_t>(0);
 static const size_t kMaxSignedSize = ((size_t(1) << (kSizeBits - 1)) - 1);
 
 namespace tcmalloc {
-extern bool want_hpaa();
-}
+extern ABSL_ATTRIBUTE_WEAK bool want_hpaa();
+}  // namespace tcmalloc
 
 int main(int argc, char** argv) {
   testing::InitGoogleTest(&argc, argv);
@@ -259,195 +263,6 @@ TEST(TcmallocTest, MemalignRealloc) {
   }
 }
 
-struct Object {
-  Object() : ptr(nullptr), size(0), generation(0) {}
-
-  Object(const Object& o) = delete;
-  Object(Object&& o)
-      : ptr(absl::exchange(o.ptr, nullptr)),
-        size(absl::exchange(o.size, 0)),
-        generation(absl::exchange(o.generation, 0)) {}
-
-  Object& operator=(const Object& o) = delete;
-  Object& operator=(Object&& o) {
-    using std::swap;
-    swap(ptr, o.ptr);
-    swap(size, o.size);
-    swap(generation, o.generation);
-
-    return *this;
-  }
-
-  void* ptr;       // Allocated pointer
-  int size;        // Allocated size
-  int generation;  // Generation counter of object contents
-};
-
-struct ABSL_CACHELINE_ALIGNED State {
-  Object RemoveRandomObject() {
-    size_t index = absl::Uniform<size_t>(rng, 0, owned.size());
-
-    using std::swap;
-    swap(owned[index], owned.back());
-    Object to_remove = std::move(owned.back());
-    owned.pop_back();
-
-    return to_remove;
-  }
-
-  // These objects are accessed exclusively by a single thread and do not
-  // require locking.
-  absl::BitGen rng;
-  std::vector<Object> owned;
-
-  // Other threads can pass us objects.
-  absl::Mutex ABSL_CACHELINE_ALIGNED lock;
-  std::vector<Object> inbound ABSL_GUARDED_BY(lock);
-};
-
-class AllocatorHarness {
- public:
-  explicit AllocatorHarness(int nthreads)
-      : nthreads_(nthreads),
-        state_(nthreads),
-        bytes_available_(nthreads * kSizePerThread) {}
-
-  ~AllocatorHarness() {
-    for (auto& state : state_) {
-      for (auto& o : state.owned) {
-        sized_delete(o.ptr, o.size);
-      }
-
-      absl::MutexLock m(&state.lock);
-      for (auto& o : state.inbound) {
-        sized_delete(o.ptr, o.size);
-      }
-    }
-  }
-
-  void Run(int thread_id) {
-    // Take ownership of inbound objects.
-    auto& state = state_[thread_id];
-
-    std::vector<Object> tmp;
-    {
-      absl::MutexLock m(&state.lock);
-      tmp.swap(state.inbound);
-    }
-
-    state.owned.reserve(state.owned.size() + tmp.size());
-    for (auto& o : tmp) {
-      state.owned.push_back(std::move(o));
-    }
-    tmp.clear();
-
-    const double coin = absl::Uniform(state.rng, 0., 1.);
-    if (coin < 0.45) {
-      // Allocate
-      size_t size = absl::LogUniform<size_t>(state.rng, 1, kMaxTestSize);
-
-      bool success = false;
-      {
-        absl::MutexLock m(&lock_);
-        if (bytes_available_ >= size) {
-          bytes_available_ -= size;
-          success = true;
-        }
-      }
-
-      if (success) {
-        Object o;
-        o.ptr = ::operator new(size);
-        o.size = size;
-
-        FillContents(o);
-
-        state.owned.push_back(std::move(o));
-        return;
-      }
-
-      // Fall through to try deallocating.
-    }
-
-    if (state.owned.empty()) {
-      return;
-    }
-
-    if (coin < 0.9) {
-      // Deallocate
-      Object to_delete = state.RemoveRandomObject();
-
-      CheckContents(to_delete);
-
-      sized_delete(to_delete.ptr, to_delete.size);
-
-      absl::MutexLock m(&lock_);
-      bytes_available_ += to_delete.size;
-      return;
-    } else if (coin < 0.92) {
-      // Update an object.
-      size_t index = absl::Uniform(state.rng, 0u, state.owned.size());
-
-      auto& obj = state.owned[index];
-      CheckContents(obj);
-      obj.generation++;
-      FillContents(obj);
-    } else {
-      // Hand an object to another thread.
-      int thread = absl::Uniform(state.rng, 0, nthreads_);
-
-      Object to_transfer = state.RemoveRandomObject();
-
-      auto& remote_state = state_[thread];
-      absl::MutexLock m(&remote_state.lock);
-      remote_state.inbound.push_back(std::move(to_transfer));
-    }
-  }
-
- private:
-  // Fill object contents according to ptr/generation
-  void FillContents(Object& object) {
-    std::mt19937 r(reinterpret_cast<intptr_t>(object.ptr) & 0x7fffffff);
-    for (int i = 0; i < object.generation; ++i) {
-      absl::Uniform<uint32_t>(r);
-    }
-    const char c = absl::Uniform<char>(r, CHAR_MIN, CHAR_MAX);
-    memset(object.ptr, c, std::min(ABSL_CACHELINE_SIZE, object.size));
-    if (object.size > ABSL_CACHELINE_SIZE) {
-      memset(static_cast<char*>(object.ptr) + object.size - ABSL_CACHELINE_SIZE,
-             c, ABSL_CACHELINE_SIZE);
-    }
-  }
-
-  // Check object contents
-  void CheckContents(const Object& object) {
-    std::mt19937 r(reinterpret_cast<intptr_t>(object.ptr) & 0x7fffffff);
-    for (int i = 0; i < object.generation; ++i) {
-      absl::Uniform<uint32_t>(r);
-    }
-
-    // For large objects, we just check a prefix/suffix
-    const char expected = absl::Uniform<char>(r, CHAR_MIN, CHAR_MAX);
-    const int limit1 = std::min(object.size, ABSL_CACHELINE_SIZE);
-    const int start2 = std::max(limit1, object.size - ABSL_CACHELINE_SIZE);
-    for (int i = 0; i < limit1; ++i) {
-      ASSERT_EQ(static_cast<const char*>(object.ptr)[i], expected);
-    }
-    for (int i = start2; i < object.size; ++i) {
-      ASSERT_EQ(static_cast<const char*>(object.ptr)[i], expected);
-    }
-  }
-
-  static constexpr size_t kMaxTestSize = 1 << 16;
-  static constexpr size_t kSizePerThread = 4 << 20;
-
-  int nthreads_;
-  std::vector<State> state_;
-
-  ABSL_CACHELINE_ALIGNED absl::Mutex lock_;
-  size_t bytes_available_ ABSL_GUARDED_BY(lock_);
-};
-
 TEST(TCMallocTest, Multithreaded) {
   const int kThreads = 10;
   ThreadManager mgr;
@@ -501,7 +316,7 @@ TEST(TCMallocTest, EnormousAllocations) {
     size_t alignment = sizeof(p) << absl::Uniform(rand, 1, kLogMaxMemalign);
     ASSERT_NE(0, alignment);
     ASSERT_EQ(0, alignment % sizeof(void*));
-    ASSERT_TRUE(tcmalloc_internal::Bits::IsPow2(alignment)) << alignment;
+    ASSERT_TRUE(absl::has_single_bit(alignment)) << alignment;
     int err = PosixMemalign(&p, alignment, size);
     ASSERT_EQ(ENOMEM, err);
   }
@@ -539,7 +354,7 @@ static size_t GetUnmappedBytes() {
 TEST(TCMallocTest, ReleaseMemoryToSystem) {
   // Similarly, the hugepage-aware allocator doesn't agree with PH about
   // where release is called for.
-  if (tcmalloc::want_hpaa()) {
+  if (&tcmalloc::want_hpaa == nullptr || tcmalloc::want_hpaa()) {
     return;
   }
 
@@ -588,6 +403,12 @@ TEST(TCMallocTest, ReleaseMemoryToSystem) {
   // Releasing less than a page should still trigger a release.
   MallocExtension::ReleaseMemoryToSystem(1);
   EXPECT_EQ(starting_bytes + 2 * MB, GetUnmappedBytes());
+}
+
+TEST(TCMallocTest, MallocTrim) {
+#ifdef TCMALLOC_HAVE_MALLOC_TRIM
+  EXPECT_EQ(malloc_trim(0), 0);
+#endif
 }
 
 TEST(TCMallocTest, NothrowSizedDelete) {
@@ -980,144 +801,6 @@ absl::optional<int64_t> ParseLowLevelAllocator(absl::string_view allocator_name,
   return result;
 }
 
-// Parse out a line like:
-// cpu   3:         1234 bytes (    0.0 MiB) with     3145728 bytes unallocated
-// for the bytes value.  Only trick is not mallocing in the process.
-int64_t ParseCPUCacheSize(absl::string_view buf, int cpu) {
-  char needlebuf[32];
-  int len = absl::SNPrintF(needlebuf, sizeof(needlebuf), "\ncpu %3d: ", cpu);
-  CHECK_CONDITION(0 < len && len < sizeof(needlebuf));
-
-  const absl::string_view needle = needlebuf;
-
-  auto pos = buf.find(needle);
-  if (pos == absl::string_view::npos) {
-    return -1;
-  }
-  // skip over the prefix.  Should now look like "    <number> bytes".
-  pos += needle.size();
-  buf.remove_prefix(pos);
-
-  pos = buf.find_first_not_of(' ');
-  if (pos != absl::string_view::npos) {
-    buf.remove_prefix(pos);
-  }
-
-  pos = buf.find(' ');
-  if (pos != absl::string_view::npos) {
-    buf.remove_suffix(buf.size() - pos);
-  }
-
-  int64_t result;
-  if (!absl::SimpleAtoi(buf, &result)) {
-    return -1;
-  }
-  return result;
-}
-
-// Is the program running with tcmalloc's cpu caches? We can't just
-// look at the flag value, it might not be supported on this machine
-// (or we might be 32-bit.)
-bool UsingCPUCaches() {
-  std::string stats = MallocExtension::GetStats();
-  // ParseCPUCacheSize will return -1 if there are no CPU entries
-  // in the malloc stats (i.e. we're not using CPU caches.)
-  return 0 <= ParseCPUCacheSize(stats, 0);
-}
-
-void GetMallocStats(std::string* buffer) {
-  buffer->resize(buffer->capacity());
-
-  CHECK_CONDITION(&TCMalloc_Internal_GetStats != nullptr);
-  size_t required = TCMalloc_Internal_GetStats(buffer->data(), buffer->size());
-  ASSERT(required <= buffer->size());
-
-  buffer->resize(std::min(required, buffer->size()));
-}
-
-TEST(TCMallocTest, ReclaimWorks) {
-  if (!UsingCPUCaches()) {
-    return;
-  }
-
-  std::string before, after;
-  // Allocate strings, so that they (probably) don't need to be reallocated
-  // below, and so don't perturb what we're trying to measure.
-  before.reserve(1 << 18);
-  after.reserve(1 << 18);
-
-  // Generate some traffic to fill up caches.
-  const int kThreads = 10;
-  ThreadManager mgr;
-  AllocatorHarness harness(kThreads);
-
-  mgr.Start(kThreads, [&](int thread_id) { harness.Run(thread_id); });
-
-  absl::SleepFor(absl::Seconds(2));
-
-  mgr.Stop();
-
-  // All CPUs (that we have access to...) should have full percpu caches.
-  // Pick one.
-  GetMallocStats(&before);
-  int cpu = -1;
-  ssize_t used_bytes = -1;
-  for (int i = 0, num_cpus = absl::base_internal::NumCPUs(); i < num_cpus;
-       ++i) {
-    used_bytes = ParseCPUCacheSize(before, i);
-    if (used_bytes > 0) {
-      cpu = i;
-      break;
-    } else if (used_bytes < -1) {
-      // this is the only way we can find out --per_cpu was requested, but
-      // not available: no matching line in Stats.
-      return;
-    }
-  }
-  // should find at least one non-empty cpu...
-  ASSERT_NE(-1, cpu);
-  uint64_t released_bytes = MallocExtension::ReleaseCpuMemory(cpu);
-  GetMallocStats(&after);
-  // I suppose some background thread could malloc here, but I'm not too
-  // worried.
-  EXPECT_EQ(released_bytes, used_bytes);
-  EXPECT_EQ(0, ParseCPUCacheSize(after, cpu));
-}
-
-TEST(TCMallocTest, ReclaimStable) {
-  // make sure that reclamation under heavy load doesn't lead to
-  // corruption.
-  struct Reclaimer {
-    static void Go(std::atomic<bool>* sync) {
-      size_t bytes = 0;
-      int iter = 0;
-      while (!sync->load(std::memory_order_acquire)) {
-        iter++;
-        for (int i = 0, num_cpus = absl::base_internal::NumCPUs(); i < num_cpus;
-             ++i) {
-          bytes += MallocExtension::ReleaseCpuMemory(i);
-        }
-      }
-    }
-  };
-
-  std::atomic<bool> sync{false};
-  std::thread releaser(Reclaimer::Go, &sync);
-
-  const int kThreads = 10;
-  ThreadManager mgr;
-  AllocatorHarness harness(kThreads);
-
-  mgr.Start(kThreads, [&](int thread_id) { harness.Run(thread_id); });
-
-  absl::SleepFor(absl::Seconds(5));
-
-  mgr.Stop();
-
-  sync.store(true, std::memory_order_release);
-  releaser.join();
-}
-
 TEST(TCMallocTest, GetStatsReportsLowLevel) {
   std::string stats = MallocExtension::GetStats();
   fprintf(stderr, "%s\n", stats.c_str());
@@ -1175,27 +858,47 @@ TEST(TCMallocTest, TestAliasedFunctions) {
 
 #endif
 
-TEST(TcmallocSizedNewTest, SizedOperatorNewReturnsExtraCapacity) {
+class TcmallocSizedNewTest : public ::testing::TestWithParam<hot_cold_t> {};
+
+INSTANTIATE_TEST_SUITE_P(HotColdDefault, TcmallocSizedNewTest,
+                         testing::Values(hot_cold_t(0), hot_cold_t{128},
+                                         hot_cold_t{255}));
+
+// local helper to call tcmalloc_size_returning_operator_new() with, or without
+// a hot_cold_t parameter based on hot_cold_t = 128 meaning 'default'
+sized_ptr_t sro_new(size_t size, hot_cold_t hot_cold) {
+  return hot_cold == hot_cold_t{128}
+             ? tcmalloc_size_returning_operator_new(size)
+             : tcmalloc_size_returning_operator_new_hot_cold(size, hot_cold);
+}
+sized_ptr_t sro_new_nothrow(size_t size, hot_cold_t hot_cold) {
+  return hot_cold == hot_cold_t{128}
+             ? tcmalloc_size_returning_operator_new_nothrow(size)
+             : tcmalloc_size_returning_operator_new_hot_cold_nothrow(size,
+                                                                     hot_cold);
+}
+
+TEST_P(TcmallocSizedNewTest, SizedOperatorNewReturnsExtraCapacity) {
   // For release / no sanitizer builds, tcmalloc does return
   // the next available class size, which we know is always at least
   // properly aligned, so size 3 should always return extra capacity.
-  sized_ptr_t res = tcmalloc_size_returning_operator_new(3);
+  sized_ptr_t res = sro_new(3, GetParam());
   EXPECT_THAT(res.n, testing::Ge(8));
   ::operator delete(res.p);
 }
 
-TEST(TcmallocSizedNewTest, NothrowSizedOperatorNewReturnsExtraCapacity) {
+TEST_P(TcmallocSizedNewTest, NothrowSizedOperatorNewReturnsExtraCapacity) {
   // For release / no sanitizer builds, tcmalloc does return
   // the next available class size, which we know is always at least
   // properly aligned, so size 3 should always return extra capacity.
-  sized_ptr_t res = tcmalloc_size_returning_operator_new_nothrow(3);
+  sized_ptr_t res = sro_new_nothrow(3, GetParam());
   EXPECT_THAT(res.n, testing::Ge(8));
   ::operator delete(res.p);
 }
 
-TEST(TcmallocSizedNewTest, SizedOperatorNew) {
+TEST_P(TcmallocSizedNewTest, SizedOperatorNew) {
   for (size_t size = 0; size < 1024; ++size) {
-    sized_ptr_t res = tcmalloc_size_returning_operator_new(size);
+    sized_ptr_t res = sro_new(size, GetParam());
     EXPECT_NE(res.p, nullptr);
     EXPECT_GE(res.n, size);
     EXPECT_LE(size, std::max(size + 100, 2 * size));
@@ -1204,9 +907,9 @@ TEST(TcmallocSizedNewTest, SizedOperatorNew) {
   }
 }
 
-TEST(TcmallocSizedNewTest, NothrowSizedOperatorNew) {
+TEST_P(TcmallocSizedNewTest, NothrowSizedOperatorNew) {
   for (size_t size = 0; size < 64 * 1024; ++size) {
-    sized_ptr_t res = tcmalloc_size_returning_operator_new_nothrow(size);
+    sized_ptr_t res = sro_new_nothrow(size, GetParam());
     EXPECT_NE(res.p, nullptr);
     EXPECT_GE(res.n, size);
     EXPECT_LE(size, std::max(size + 100, 2 * size));
@@ -1215,19 +918,19 @@ TEST(TcmallocSizedNewTest, NothrowSizedOperatorNew) {
   }
 }
 
-TEST(TcmallocSizedNewTest, InvalidSizedOperatorNewAlwaysFails) {
+TEST_P(TcmallocSizedNewTest, InvalidSizedOperatorNewAlwaysFails) {
   constexpr size_t kBadSize = std::numeric_limits<size_t>::max();
-  EXPECT_DEATH(tcmalloc_size_returning_operator_new(kBadSize), ".*");
+  EXPECT_DEATH(sro_new(kBadSize, GetParam()), ".*");
 }
 
-TEST(TcmallocSizedNewTest, InvalidNothrowSizedOperatorNew) {
+TEST_P(TcmallocSizedNewTest, InvalidNothrowSizedOperatorNew) {
   constexpr size_t kBadSize = std::numeric_limits<size_t>::max();
-  sized_ptr_t res = tcmalloc_size_returning_operator_new_nothrow(kBadSize);
+  sized_ptr_t res = sro_new_nothrow(kBadSize, GetParam());
   EXPECT_EQ(res.p, nullptr);
   EXPECT_EQ(res.n, 0);
 }
 
-TEST(TcmallocSizedNewTest, SizedOperatorNewMatchesMallocExtensionValue) {
+TEST_P(TcmallocSizedNewTest, SizedOperatorNewMatchesMallocExtensionValue) {
   // Set reasonable sampling and guarded sampling probabilities.
   ScopedProfileSamplingRate s(20);
   ScopedGuardedSamplingRate gs(20);
@@ -1235,14 +938,14 @@ TEST(TcmallocSizedNewTest, SizedOperatorNewMatchesMallocExtensionValue) {
 
   // Traverse clean power 2 / common size class / page sizes
   for (size_t size = 32; size <= 2 * 1024 * 1024; size *= 2) {
-    sized_ptr_t r = tcmalloc_size_returning_operator_new(size);
+    sized_ptr_t r = sro_new(size, GetParam());
     ASSERT_EQ(r.n, MallocExtension::GetAllocatedSize(r.p));
     ::operator delete(r.p, r.n);
   }
 
   // Traverse randomized sizes
   for (size_t size = 32; size <= 2 * 1024 * 1024; size += kOddIncrement) {
-    sized_ptr_t r = tcmalloc_size_returning_operator_new(size);
+    sized_ptr_t r = sro_new(size, GetParam());
     ASSERT_EQ(r.n, MallocExtension::GetAllocatedSize(r.p));
     ::operator delete(r.p, r.n);
   }
@@ -1272,6 +975,85 @@ TEST(SizedDeleteTest, NothrowSizedOperatorDelete) {
   for (size_t size = 0; size < 64 * 1024; ++size) {
     sized_ptr_t res = tcmalloc_size_returning_operator_new(size);
     ::operator delete(res.p, std::nothrow);
+  }
+}
+
+TEST(HotColdTest, HotColdNew) {
+  const bool expectColdTags = TCMalloc_Internal_ColdExperimentActive();
+  using tcmalloc_internal::IsColdMemory;
+  using tcmalloc_internal::IsSampledMemory;
+
+  absl::flat_hash_set<uintptr_t> hot;
+  absl::flat_hash_set<uintptr_t> cold;
+
+  absl::BitGen rng;
+
+  // Allocate some hot objects
+  struct SizedPtr {
+    void* ptr;
+    size_t size;
+  };
+
+  constexpr size_t kSmall = 2 << 10;
+  constexpr size_t kLarge = 1 << 20;
+
+  std::vector<SizedPtr> ptrs;
+  ptrs.reserve(1000);
+  for (int i = 0; i < 1000; i++) {
+    size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    uint8_t label = absl::Uniform<uint8_t>(rng, 0, 127);
+    label |= uint8_t{128};
+
+    void* ptr = ::operator new(size, static_cast<tcmalloc::hot_cold_t>(label));
+
+    ptrs.emplace_back(SizedPtr{ptr, size});
+
+    EXPECT_TRUE(!IsColdMemory(ptr)) << ptr;
+  }
+
+  // Delete
+  for (SizedPtr s : ptrs) {
+    if (expectColdTags && !IsSampledMemory(s.ptr)) {
+      EXPECT_TRUE(hot.insert(reinterpret_cast<uintptr_t>(s.ptr)).second);
+    }
+
+    if (absl::Bernoulli(rng, 0.2)) {
+      ::operator delete(s.ptr);
+    } else {
+      sized_delete(s.ptr, s.size);
+    }
+  }
+
+  // Allocate some cold objects
+  ptrs.clear();
+  for (int i = 0; i < 1000; i++) {
+    size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    uint8_t label = absl::Uniform<uint8_t>(rng, 0, 127);
+    label &= ~uint8_t{128};
+
+    void* ptr = ::operator new(size, static_cast<tcmalloc::hot_cold_t>(label));
+    ptrs.emplace_back(SizedPtr{ptr, size});
+  }
+
+  for (SizedPtr s : ptrs) {
+    if (expectColdTags && IsColdMemory(s.ptr)) {
+      EXPECT_TRUE(cold.insert(reinterpret_cast<uintptr_t>(s.ptr)).second);
+    }
+
+    if (absl::Bernoulli(rng, 0.2)) {
+      ::operator delete(s.ptr);
+    } else {
+      sized_delete(s.ptr, s.size);
+    }
+  }
+
+  if (!expectColdTags) {
+    return;
+  }
+
+  for (uintptr_t h : hot) {
+    EXPECT_THAT(cold, testing::Not(testing::Contains(h)))
+        << reinterpret_cast<void*>(h);
   }
 }
 

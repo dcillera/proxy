@@ -24,19 +24,23 @@ import (
 
 var (
 	run      bool
+	outfile  string
 	repoRoot string
 )
 
 func main() {
 	flag.BoolVar(&run, "execute", false, "Write generated files to destination.")
+	flag.StringVar(&outfile, "outfile", "", "Write this specific file to stdout.")
 	flag.Parse()
 
 	// Determine repository root path.
-	out, err := exec.Command("git", "rev-parse", "--show-toplevel").CombinedOutput()
-	check(err)
-	repoRoot = strings.TrimSpace(string(out))
+	if outfile == "" {
+		out, err := exec.Command("git", "rev-parse", "--show-toplevel").CombinedOutput()
+		check(err)
+		repoRoot = strings.TrimSpace(string(out))
+		chdirRoot()
+	}
 
-	chdirRoot()
 	writeSource("internal/filedesc/desc_list_gen.go", generateDescListTypes())
 	writeSource("internal/impl/codec_gen.go", generateImplCodec())
 	writeSource("internal/impl/message_reflect_gen.go", generateImplMessage())
@@ -100,6 +104,7 @@ var descListTypesTemplate = template.Must(template.New("").Parse(`
 		byName map[protoreflect.Name]*{{$nameDesc}} // protected by once
 		{{- if (eq . "Field")}}
 		byJSON map[string]*{{$nameDesc}}            // protected by once
+		byText map[string]*{{$nameDesc}}            // protected by once
 		{{- end}}
 		{{- if .NumberExpr}}
 		byNum  map[{{.NumberExpr}}]*{{$nameDesc}}   // protected by once
@@ -125,6 +130,12 @@ var descListTypesTemplate = template.Must(template.New("").Parse(`
 		}
 		return nil
 	}
+	func (p *{{$nameList}}) ByTextName(s string) {{.Expr}} {
+		if d := p.lazyInit().byText[s]; d != nil {
+			return d
+		}
+		return nil
+	}
 	{{- end}}
 	{{- if .NumberExpr}}
 	func (p *{{$nameList}}) ByNumber(n {{.NumberExpr}}) {{.Expr}} {
@@ -144,6 +155,7 @@ var descListTypesTemplate = template.Must(template.New("").Parse(`
 				p.byName = make(map[protoreflect.Name]*{{$nameDesc}}, len(p.List))
 				{{- if (eq . "Field")}}
 				p.byJSON = make(map[string]*{{$nameDesc}}, len(p.List))
+				p.byText = make(map[string]*{{$nameDesc}}, len(p.List))
 				{{- end}}
 				{{- if .NumberExpr}}
 				p.byNum = make(map[{{.NumberExpr}}]*{{$nameDesc}}, len(p.List))
@@ -156,6 +168,9 @@ var descListTypesTemplate = template.Must(template.New("").Parse(`
 					{{- if (eq . "Field")}}
 					if _, ok := p.byJSON[d.JSONName()]; !ok {
 						p.byJSON[d.JSONName()] = d
+					}
+					if _, ok := p.byText[d.TextName()]; !ok {
+						p.byText[d.TextName()] = d
 					}
 					{{- end}}
 					{{- if .NumberExpr}}
@@ -222,6 +237,13 @@ func writeSource(file, src string) {
 		// Just print the error and output the unformatted file for examination.
 		fmt.Fprintf(os.Stderr, "%v:%v\n", file, err)
 		b = []byte(s)
+	}
+
+	if outfile != "" {
+		if outfile == file {
+			os.Stdout.Write(b)
+		}
+		return
 	}
 
 	absFile := filepath.Join(repoRoot, file)

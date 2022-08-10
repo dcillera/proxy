@@ -1,4 +1,4 @@
-# Copyright 2020 The Bazel Authors. All rights reserved.
+# Copyright 2021 The Bazel Authors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,10 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Utility methods to populate PackageVariablesInfo instances."""
-
-def add_ctx_variables(ctx, values):
-    """Add selected variables from ctx."""
-    values['target_cpu'] = ctx.var.get("TARGET_CPU")
-    values['compilation_mode'] = ctx.var.get("COMPILATION_MODE")
-    return values
+load("//pkg/package_variables.bzl",
+    _add_ctx_variables = "add_ctx_variables",
+)
+add_ctx_variables = _add_ctx_variables

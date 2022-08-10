@@ -64,7 +64,7 @@ class AdjustableSampler {
     CHECK_CONDITION(n >= 1);
   }
 
-  explicit AdjustableSampler(const std::vector<double> &weights)
+  explicit AdjustableSampler(const std::vector<double>& weights)
       : n_(NextPowerOfTwo(weights.size())), tree_(2 * n_ - 1, 0) {
     CHECK_CONDITION(!weights.empty());
     absl::c_copy(weights, tree_.begin() + (n_ - 1));
@@ -79,7 +79,7 @@ class AdjustableSampler {
   // Sample from the distribution on {0, 1, ..., n_ - 1} with probabilities:
   // p_i = w_i / Sum(w_i)
   template <typename Generator>
-  size_t operator()(Generator &g) const {  // NOLINT(runtime/references)
+  size_t operator()(Generator& g) const {  // NOLINT(runtime/references)
     return SampleWeight(
         absl::uniform_real_distribution<double>(0, tree_[0])(g));
   }
@@ -99,7 +99,7 @@ class AdjustableSampler {
 
   double TotalWeight() const { return tree_[0]; }
 
-  bool operator==(const AdjustableSampler &rhs) const {
+  bool operator==(const AdjustableSampler& rhs) const {
     return n_ == rhs.n_ && tree_ == rhs.tree_;
   }
 
@@ -128,6 +128,10 @@ class AdjustableSampler {
       // As discussed above, we want to go left with probability left / W.
       const double left = tree_[2 * i + 1];
       if (x <= left) {
+        // TODO(b/189322249): Prevent this loop from being predicated as doing
+        // so significantly reduces performance.
+        asm volatile("");
+
         // Conditioning on this branch, x is now uniform in [0, left).
         i = 2 * i + 1;
       } else {
@@ -170,10 +174,11 @@ class EmpiricalData {
     double num_live;
   };
 
-  // Allocates ~total_mem bytes, to put us in a "steady state".
+  // Allocates ~(total_mem bytes / thread count) to put us in a "steady state".
   EmpiricalData(size_t seed, const absl::Span<const Entry> weights,
-                size_t total_mem, absl::FunctionRef<void *(size_t)> alloc,
-                absl::FunctionRef<void(void *, size_t)> dealloc);
+                size_t total_mem, absl::FunctionRef<void*(size_t)> alloc,
+                absl::FunctionRef<void(void*, size_t)> dealloc,
+                bool record_and_replay_mode = false);
 
   ~EmpiricalData();
 
@@ -187,11 +192,50 @@ class EmpiricalData {
   // Allocate or deallocate the next object
   void Next();
 
+  // Records information on which allocation or deallocation *would have* been
+  // performed had we called Next() instead.  For questions about the internal
+  // logic of this function please see the comments within Next().
+  void RecordNext();
+
+  // Replays the next alloc or dealloc we recorded when building the trace.
+  // Also updates the indices into the recorded birth / death trace.
+  // incremented.
+  void ReplayNext();
+
   // Empirical stats for the lifetime of this simulation (not including
   // startup allocations.)
   std::vector<Entry> Actual() const;
 
-  absl::BitGen *const rng() { return &rng_; }
+  absl::BitGen* const rng() { return &rng_; }
+
+  // Saves the list of live objects of each size class.  We will later restore
+  // this list (exactly once) with RestoreSnapshot() after we have constructed
+  // the record and replay information.
+  void SnapshotLiveObjects();
+
+  // Restores the list of live objects within each size class to what it was
+  // after the warmup allocations were complete.  Because building the trace
+  // modifies the lists of live objects this function must be called
+  // 1) exactly once and 2) after the trace has been constructed but before
+  // starting to replay the trace.
+  void RestoreSnapshot();
+
+  // Restores the *lengths* of the number of live objects within each size class
+  // to what it was after the warmup allocations were complete.  This is
+  // accomplished by either allocating or deallocating objects until the same
+  // number of objects are live within each size class as were live after the
+  // warmup allocations were complete.  This is safe to call repeatedly.
+  void RepairToSnapshotState();
+
+  // Computes addresses to prefetch when executing in record and replay mode.
+  // This is necessary to minimize the impact of indexing into SizeState.objs
+  // when freeing an object.
+  void BuildDeathObjectPointers();
+
+  // Tests whether we have reached the end of the birth / death trace.  If so
+  // performs the actions necessary so that we can start replaying allocs /
+  // deallocs from the beginning of the trace again.
+  void RestartTraceIfNecessary();
 
  private:
   absl::BitGen rng_;
@@ -201,14 +245,20 @@ class EmpiricalData {
     const double birth_rate;
     const double death_rate;
     size_t total;
-    std::vector<void *> objs;
+    std::vector<void*> objs;
   };
 
   void DoBirth(const size_t i);
   void DoDeath(const size_t i);
 
-  absl::FunctionRef<void *(size_t)> alloc_;
-  absl::FunctionRef<void(void *, size_t)> dealloc_;
+  void RecordBirth(const size_t i);
+  void ReplayBirth(const size_t i);
+  void RecordDeath(const size_t i);
+  void ReplayDeath(const size_t i, const uint64_t index);
+  void ReserveSizeClassObjects();
+
+  absl::FunctionRef<void*(size_t)> alloc_;
+  absl::FunctionRef<void(void*, size_t)> dealloc_;
 
   size_t usage_;
   size_t num_live_;
@@ -219,6 +269,15 @@ class EmpiricalData {
   absl::discrete_distribution<size_t> birth_sampler_;
   double total_birth_rate_;
   AdjustableSampler death_sampler_;
+
+  // Record and replay members.
+  std::vector<SizeState> snapshot_state_;
+  std::vector<bool> birth_or_death_;
+  std::vector<uint16_t> birth_or_death_sizes_;
+  std::vector<uint32_t> death_objects_;
+  std::vector<void**> death_object_pointers_;
+  uint32_t birth_or_death_index_ = 0;
+  uint32_t death_object_index_ = 0;
 };
 
 using EmpiricalProfile = absl::Span<const EmpiricalData::Entry>;

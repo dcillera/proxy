@@ -1060,11 +1060,11 @@ func TestMarshal(t *testing.T) {
 			return m
 		}(),
 		want: `{
-  "[pb2.MessageSetExtension]": {
-    "optString": "a messageset extension"
-  },
   "[pb2.MessageSetExtension.ext_nested]": {
     "optString": "just a regular extension"
+  },
+  "[pb2.MessageSetExtension]": {
+    "optString": "a messageset extension"
   },
   "[pb2.MessageSetExtension.not_message_set_extension]": {
     "optString": "not a messageset extension"
@@ -1255,6 +1255,18 @@ func TestMarshal(t *testing.T) {
   {},
   []
 ]`,
+	}, {
+		desc:    "Value with NaN",
+		input:   structpb.NewNumberValue(math.NaN()),
+		wantErr: true,
+	}, {
+		desc:    "Value with -Inf",
+		input:   structpb.NewNumberValue(math.Inf(-1)),
+		wantErr: true,
+	}, {
+		desc:    "Value with +Inf",
+		input:   structpb.NewNumberValue(math.Inf(+1)),
+		wantErr: true,
 	}, {
 		desc:  "Struct with nil map",
 		input: &structpb.Struct{},
@@ -1622,6 +1634,34 @@ func TestMarshal(t *testing.T) {
 		want: `{
   "@type": "pb2.PartialRequired",
   "optString": "embedded inside Any"
+}`,
+	}, {
+		desc: "Any with EmitUnpopulated",
+		mo: protojson.MarshalOptions{
+			EmitUnpopulated: true,
+		},
+		input: func() proto.Message {
+			return &anypb.Any{
+				TypeUrl: string(new(pb3.Scalars).ProtoReflect().Descriptor().FullName()),
+			}
+		}(),
+		want: `{
+  "@type": "pb3.Scalars",
+  "sBool": false,
+  "sInt32": 0,
+  "sInt64": "0",
+  "sUint32": 0,
+  "sUint64": "0",
+  "sSint32": 0,
+  "sSint64": "0",
+  "sFixed32": 0,
+  "sFixed64": "0",
+  "sSfixed32": 0,
+  "sSfixed64": "0",
+  "sFloat": 0,
+  "sDouble": 0,
+  "sBytes": "",
+  "sString": ""
 }`,
 	}, {
 		desc: "Any with invalid UTF8",
@@ -2123,6 +2163,35 @@ func TestMarshal(t *testing.T) {
       "optNested": null
     }
   ]
+}`,
+	}, {
+		desc: "EmitUnpopulated: with populated fields",
+		mo:   protojson.MarshalOptions{EmitUnpopulated: true},
+		input: &pb2.Scalars{
+			OptInt32:    proto.Int32(0xff),
+			OptUint32:   proto.Uint32(47),
+			OptSint32:   proto.Int32(-1001),
+			OptFixed32:  proto.Uint32(32),
+			OptSfixed32: proto.Int32(-32),
+			OptFloat:    proto.Float32(1.02),
+			OptBytes:    []byte("谷歌"),
+		},
+		want: `{
+  "optBool": null,
+  "optInt32": 255,
+  "optInt64": null,
+  "optUint32": 47,
+  "optUint64": null,
+  "optSint32": -1001,
+  "optSint64": null,
+  "optFixed32": 32,
+  "optFixed64": null,
+  "optSfixed32": -32,
+  "optSfixed64": null,
+  "optFloat": 1.02,
+  "optDouble": null,
+  "optBytes": "6LC35q2M",
+  "optString": null
 }`,
 	}, {
 		desc: "UseEnumNumbers in singular field",

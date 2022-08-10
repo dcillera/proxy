@@ -33,6 +33,7 @@ load(
 instrum_configs = {
     "none": instrum_opts.make(),
     "libfuzzer": instrum_defaults.libfuzzer,
+    "jazzer": instrum_defaults.jazzer,
     "honggfuzz": instrum_defaults.honggfuzz,
     "oss-fuzz": oss_fuzz_opts,
 }
@@ -43,4 +44,5 @@ sanitizer_configs = {
     "asan": instrum_defaults.asan,
     "msan": instrum_defaults.msan,
     "msan-origin-tracking": instrum_defaults.msan_origin_tracking,
+    "ubsan": instrum_defaults.ubsan,
 }

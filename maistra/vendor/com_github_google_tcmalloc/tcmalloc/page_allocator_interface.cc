@@ -23,21 +23,25 @@
 
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/util.h"
 #include "tcmalloc/static_vars.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
-
-using tcmalloc::tcmalloc_internal::signal_safe_open;
-using tcmalloc::tcmalloc_internal::thread_safe_getenv;
+namespace tcmalloc_internal {
 
 static int OpenLog(MemoryTag tag) {
-  const char *fname = [&]() {
+  const char* fname = [&]() {
     switch (tag) {
       case MemoryTag::kNormal:
         return thread_safe_getenv("TCMALLOC_PAGE_LOG_FILE");
+      case MemoryTag::kNormalP1:
+        return thread_safe_getenv("TCMALLOC_PAGE_LOG_FILE_P1");
       case MemoryTag::kSampled:
         return thread_safe_getenv("TCMALLOC_SAMPLED_PAGE_LOG_FILE");
+      case MemoryTag::kCold:
+        return thread_safe_getenv("TCMALLOC_COLD_PAGE_LOG_FILE");
       default:
         ASSUME(false);
         __builtin_unreachable();
@@ -54,7 +58,7 @@ static int OpenLog(MemoryTag tag) {
   // Tag file with PID - handles forking children much better.
   int pid = getpid();
   // Blaze tests can output here for recovery of the output file
-  const char *test_dir = thread_safe_getenv("TEST_UNDECLARED_OUTPUTS_DIR");
+  const char* test_dir = thread_safe_getenv("TEST_UNDECLARED_OUTPUTS_DIR");
   if (test_dir) {
     snprintf(buf, sizeof(buf), "%s/%s.%d", test_dir, fname, pid);
   } else {
@@ -70,10 +74,10 @@ static int OpenLog(MemoryTag tag) {
   return fd;
 }
 
-PageAllocatorInterface::PageAllocatorInterface(const char *label, MemoryTag tag)
+PageAllocatorInterface::PageAllocatorInterface(const char* label, MemoryTag tag)
     : PageAllocatorInterface(label, &Static::pagemap(), tag) {}
 
-PageAllocatorInterface::PageAllocatorInterface(const char *label, PageMap *map,
+PageAllocatorInterface::PageAllocatorInterface(const char* label, PageMap* map,
                                                MemoryTag tag)
     : info_(label, OpenLog(tag)), pagemap_(map), tag_(tag) {}
 
@@ -82,4 +86,6 @@ PageAllocatorInterface::~PageAllocatorInterface() {
   Crash(kCrash, __FILE__, __LINE__, "should never destroy this");
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

@@ -1,10 +1,11 @@
 load("@rules_cc//cc:defs.bzl", "cc_library")
 load(
     "@proxy_wasm_cpp_host//bazel:select.bzl",
-    "proxy_wasm_select_runtime_v8",
-    "proxy_wasm_select_runtime_wamr",
-    "proxy_wasm_select_runtime_wasmtime",
-    "proxy_wasm_select_runtime_wavm",
+    "proxy_wasm_select_engine_null",
+    "proxy_wasm_select_engine_v8",
+    "proxy_wasm_select_engine_wamr",
+    "proxy_wasm_select_engine_wasmtime",
+    "proxy_wasm_select_engine_wavm",
 )
 
 licenses(["notice"])  # Apache 2
@@ -12,6 +13,11 @@ licenses(["notice"])  # Apache 2
 package(default_visibility = ["//visibility:public"])
 
 exports_files(["LICENSE"])
+
+filegroup(
+    name = "clang_tidy_config",
+    data = [".clang-tidy"],
+)
 
 cc_library(
     name = "wasm_vm_headers",
@@ -56,6 +62,10 @@ cc_library(
         "include/proxy-wasm/bytecode_util.h",
         "include/proxy-wasm/signature_util.h",
     ],
+    linkopts = select({
+        "//bazel:crypto_system": ["-lcrypto"],
+        "//conditions:default": [],
+    }),
     deps = [
         ":headers",
         "@openssl//:openssl-lib",
@@ -76,7 +86,10 @@ cc_library(
         "include/proxy-wasm/null_vm_plugin.h",
         "include/proxy-wasm/wasm_api_impl.h",
     ],
-    defines = ["PROXY_WASM_HAS_RUNTIME_NULL"],
+    defines = [
+        "PROXY_WASM_HAS_RUNTIME_NULL",
+        "PROXY_WASM_HOST_ENGINE_NULL",
+    ],
     deps = [
         ":headers",
         "@com_google_protobuf//:protobuf_lite",
@@ -90,7 +103,10 @@ cc_library(
         "src/v8/v8.cc",
     ],
     hdrs = ["include/proxy-wasm/v8.h"],
-    defines = ["PROXY_WASM_HAS_RUNTIME_V8"],
+    defines = [
+        "PROXY_WASM_HAS_RUNTIME_V8",
+        "PROXY_WASM_HOST_ENGINE_V8",
+    ],
     deps = [
         ":wasm_vm_headers",
         "//external:wee8",
@@ -105,7 +121,10 @@ cc_library(
         "src/wamr/wamr.cc",
     ],
     hdrs = ["include/proxy-wasm/wamr.h"],
-    defines = ["PROXY_WASM_HAS_RUNTIME_WAMR"],
+    defines = [
+        "PROXY_WASM_HAS_RUNTIME_WAMR",
+        "PROXY_WASM_HOST_ENGINE_WAMR",
+    ],
     deps = [
         ":wasm_vm_headers",
         "//external:wamr",
@@ -120,10 +139,93 @@ cc_library(
         "src/wasmtime/wasmtime.cc",
     ],
     hdrs = ["include/proxy-wasm/wasmtime.h"],
-    defines = ["PROXY_WASM_HAS_RUNTIME_WASMTIME"],
+    copts = [
+        "-DWASM_API_EXTERN=",
+    ],
+    defines = [
+        "PROXY_WASM_HAS_RUNTIME_WASMTIME",
+        "PROXY_WASM_HOST_ENGINE_WASMTIME",
+    ],
+    # See: https://bytecodealliance.github.io/wasmtime/c-api/
+    linkopts = select({
+        "@platforms//os:macos": [],
+        "@platforms//os:windows": [
+            "ws2_32.lib",
+            "advapi32.lib",
+            "userenv.lib",
+            "ntdll.lib",
+            "shell32.lib",
+            "ole32.lib",
+            "bcrypt.lib",
+        ],
+        "//conditions:default": [
+            "-ldl",
+            "-lm",
+            "-lpthread",
+        ],
+    }),
     deps = [
         ":wasm_vm_headers",
         "//external:wasmtime",
+    ],
+)
+
+genrule(
+    name = "prefixed_wasmtime_sources",
+    srcs = [
+        "src/wasmtime/types.h",
+        "src/wasmtime/wasmtime.cc",
+    ],
+    outs = [
+        "src/wasmtime/prefixed_types.h",
+        "src/wasmtime/prefixed_wasmtime.cc",
+    ],
+    cmd = """
+        for file in $(SRCS); do
+           sed -e 's/wasm_/wasmtime_wasm_/g' \
+               -e 's/include\\/wasm.h/include\\/prefixed_wasm.h/g' \
+               -e 's/wasmtime\\/types.h/wasmtime\\/prefixed_types.h/g' \
+           $$file >$(@D)/$$(dirname $$file)/prefixed_$$(basename $$file)
+        done
+        """,
+)
+
+cc_library(
+    name = "prefixed_wasmtime_lib",
+    srcs = [
+        "src/common/types.h",
+        "src/wasmtime/prefixed_types.h",
+        "src/wasmtime/prefixed_wasmtime.cc",
+    ],
+    hdrs = ["include/proxy-wasm/wasmtime.h"],
+    copts = [
+        "-DWASM_API_EXTERN=",
+    ],
+    defines = [
+        "PROXY_WASM_HAS_RUNTIME_WASMTIME",
+        "PROXY_WASM_HOST_ENGINE_WASMTIME",
+    ],
+    # See: https://bytecodealliance.github.io/wasmtime/c-api/
+    linkopts = select({
+        "@platforms//os:macos": [],
+        "@platforms//os:windows": [
+            "ws2_32.lib",
+            "advapi32.lib",
+            "userenv.lib",
+            "ntdll.lib",
+            "shell32.lib",
+            "ole32.lib",
+            "bcrypt.lib",
+        ],
+        "//conditions:default": [
+            "-ldl",
+            "-lm",
+            "-lpthread",
+        ],
+    }),
+    deps = [
+        ":wasm_vm_headers",
+        "//external:prefixed_wasmtime",
     ],
 )
 
@@ -134,11 +236,21 @@ cc_library(
     ],
     hdrs = ["include/proxy-wasm/wavm.h"],
     copts = [
-        '-DWAVM_API=""',
+        "-DWAVM_API=",
         "-Wno-non-virtual-dtor",
         "-Wno-old-style-cast",
     ],
-    defines = ["PROXY_WASM_HAS_RUNTIME_WAVM"],
+    defines = [
+        "PROXY_WASM_HAS_RUNTIME_WAVM",
+        "PROXY_WASM_HOST_ENGINE_WAVM",
+    ],
+    linkopts = select({
+        "@platforms//os:macos": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": [
+            "-ldl",
+        ],
+    }),
     deps = [
         ":wasm_vm_headers",
         "//external:wavm",
@@ -149,14 +261,16 @@ cc_library(
     name = "lib",
     deps = [
         ":base_lib",
-        ":null_lib",
-    ] + proxy_wasm_select_runtime_v8(
+    ] + proxy_wasm_select_engine_null(
+        [":null_lib"],
+    ) + proxy_wasm_select_engine_v8(
         [":v8_lib"],
-    ) + proxy_wasm_select_runtime_wamr(
+    ) + proxy_wasm_select_engine_wamr(
         [":wamr_lib"],
-    ) + proxy_wasm_select_runtime_wasmtime(
+    ) + proxy_wasm_select_engine_wasmtime(
         [":wasmtime_lib"],
-    ) + proxy_wasm_select_runtime_wavm(
+        [":prefixed_wasmtime_lib"],
+    ) + proxy_wasm_select_engine_wavm(
         [":wavm_lib"],
     ),
 )

@@ -1,4 +1,4 @@
-# Copyright 2020 The Bazel Authors. All rights reserved.
+# Copyright 2021 The Bazel Authors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,32 +13,13 @@
 # limitations under the License.
 
 # Workspace dependencies for rules_pkg/pkg
+# This is for backwards compatibility with existing usage.  Please use
+#     load("//pkg:deps.bzl", "rules_pkg_dependencies")
+# going forward.
 
-load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
-load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
-load("@bazel_tools//tools/build_defs/repo:utils.bzl", "maybe")
+load("//pkg:deps.bzl", _rules_pkg_dependencies = "rules_pkg_dependencies")
 
-# @federation: BEGIN @rules_pkg
-
-def rules_pkg_dependencies():
-    maybe(
-        http_archive,
-        name = "bazel_skylib",
-        urls = [
-            "https://mirror.bazel.build/github.com/bazelbuild/bazel-skylib/releases/download/1.0.2/bazel-skylib-1.0.2.tar.gz",
-            "https://github.com/bazelbuild/bazel-skylib/releases/download/1.0.2/bazel-skylib-1.0.2.tar.gz",
-        ],
-        sha256 = "97e70364e9249702246c0e9444bccdc4b847bed1eb03c5a3ece4f83dfe6abc44",
-    )
-    maybe(
-        http_archive,
-        name = "rules_python",
-        url = "https://github.com/bazelbuild/rules_python/releases/download/0.1.0/rules_python-0.1.0.tar.gz",
-        sha256 = "b6d46438523a3ec0f3cead544190ee13223a52f6a6765a29eae7b7cc24cc83a0",
-    )
-
+rules_pkg_dependencies = _rules_pkg_dependencies
 
 def rules_pkg_register_toolchains():
     pass
-
-# @federation: END @rules_pkg

@@ -2,9 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use runfiles;
-use rustfmt_lib;
-
 fn main() {
     // Gather all and environment settings
     let options = parse_args();
@@ -92,7 +89,7 @@ fn parse_args() -> Config {
         rustfmt_config: rustfmt_lib::parse_rustfmt_config(),
         manifests: manifests
             .iter()
-            .map(|manifest| rustfmt_lib::parse_rustfmt_manifest(&manifest))
+            .map(|manifest| rustfmt_lib::parse_rustfmt_manifest(manifest))
             .collect(),
     }
 }

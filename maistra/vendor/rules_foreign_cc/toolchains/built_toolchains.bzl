@@ -14,53 +14,41 @@ filegroup(
 )
 """
 
+_CMAKE_SRCS = {
+    "3.21.0": [["https://github.com/Kitware/CMake/releases/download/v3.21.0/cmake-3.21.0.tar.gz"], "cmake-3.21.0", "4a42d56449a51f4d3809ab4d3b61fd4a96a469e56266e896ce1009b5768bd2ab"],
+    "3.21.1": [["https://github.com/Kitware/CMake/releases/download/v3.21.1/cmake-3.21.1.tar.gz"], "cmake-3.21.1", "fac3915171d4dff25913975d712f76e69aef44bf738ba7b976793a458b4cfed4"],
+    "3.21.2": [["https://github.com/Kitware/CMake/releases/download/v3.21.2/cmake-3.21.2.tar.gz"], "cmake-3.21.2", "94275e0b61c84bb42710f5320a23c6dcb2c6ee032ae7d2a616f53f68b3d21659"],
+    "3.21.3": [["https://github.com/Kitware/CMake/releases/download/v3.21.3/cmake-3.21.3.tar.gz"], "cmake-3.21.3", "d14d06df4265134ee42c4d50f5a60cb8b471b7b6a47da8e5d914d49dd783794f"],
+    "3.21.4": [["https://github.com/Kitware/CMake/releases/download/v3.21.4/cmake-3.21.4.tar.gz"], "cmake-3.21.4", "d9570a95c215f4c9886dd0f0564ca4ef8d18c30750f157238ea12669c2985978"],
+    "3.22.0": [["https://github.com/Kitware/CMake/releases/download/v3.22.0/cmake-3.22.0.tar.gz"], "cmake-3.22.0", "998c7ba34778d2dfdb3df8a695469e24b11e2bfa21fbe41b361a3f45e1c9345e"],
+    "3.22.1": [["https://github.com/Kitware/CMake/releases/download/v3.22.1/cmake-3.22.1.tar.gz"], "cmake-3.22.1", "0e998229549d7b3f368703d20e248e7ee1f853910d42704aa87918c213ea82c0"],
+}
+
 # buildifier: disable=unnamed-macro
-def built_toolchains(cmake_version, make_version, ninja_version):
+def built_toolchains(cmake_version, make_version, ninja_version, register_toolchains):
     """Register toolchains for built tools that will be built from source"""
-    _cmake_toolchain(cmake_version)
-    _make_toolchain(make_version)
-    _ninja_toolchain(ninja_version)
+    _cmake_toolchain(cmake_version, register_toolchains)
+    _make_toolchain(make_version, register_toolchains)
+    _ninja_toolchain(ninja_version, register_toolchains)
 
-def _cmake_toolchain(version):
-    native.register_toolchains(
-        "@rules_foreign_cc//toolchains:built_cmake_toolchain",
-    )
-    if "3.21.2" == version:
-        maybe(
-            http_archive,
-            name = "cmake_src",
-            build_file_content = _ALL_CONTENT,
-            sha256 = "94275e0b61c84bb42710f5320a23c6dcb2c6ee032ae7d2a616f53f68b3d21659",
-            strip_prefix = "cmake-3.21.2",
-            urls = [
-                "https://github.com/Kitware/CMake/releases/download/v3.21.2/cmake-3.21.2.tar.gz",
-            ],
+def _cmake_toolchain(version, register_toolchains):
+    if register_toolchains:
+        native.register_toolchains(
+            "@rules_foreign_cc//toolchains:built_cmake_toolchain",
         )
-        return
 
-    if "3.21.1" == version:
+    if _CMAKE_SRCS.get(version):
+        cmake_meta = _CMAKE_SRCS[version]
+        urls = cmake_meta[0]
+        prefix = cmake_meta[1]
+        sha256 = cmake_meta[2]
         maybe(
             http_archive,
             name = "cmake_src",
             build_file_content = _ALL_CONTENT,
-            sha256 = "fac3915171d4dff25913975d712f76e69aef44bf738ba7b976793a458b4cfed4",
-            strip_prefix = "cmake-3.21.1",
-            urls = [
-                "https://github.com/Kitware/CMake/releases/download/v3.21.1/cmake-3.21.1.tar.gz",
-            ],
-        )
-        return
-
-    if "3.21.0" == version:
-        maybe(
-            http_archive,
-            name = "cmake_src",
-            build_file_content = _ALL_CONTENT,
-            sha256 = "4a42d56449a51f4d3809ab4d3b61fd4a96a469e56266e896ce1009b5768bd2ab",
-            strip_prefix = "cmake-3.21.0",
-            urls = [
-                "https://github.com/Kitware/CMake/releases/download/v3.21.0/cmake-3.21.0.tar.gz",
-            ],
+            sha256 = sha256,
+            strip_prefix = prefix,
+            urls = urls,
         )
         return
 
@@ -417,15 +405,17 @@ def _cmake_toolchain(version):
 
     fail("Unsupported cmake version: " + str(version))
 
-def _make_toolchain(version):
-    native.register_toolchains(
-        "@rules_foreign_cc//toolchains:built_make_toolchain",
-    )
+def _make_toolchain(version, register_toolchains):
+    if register_toolchains:
+        native.register_toolchains(
+            "@rules_foreign_cc//toolchains:built_make_toolchain",
+        )
     if version == "4.3":
         maybe(
             http_archive,
             name = "gnumake_src",
             build_file_content = _ALL_CONTENT,
+            patches = [str(Label("//toolchains:make-reproducible-bootstrap.patch"))],
             sha256 = "e05fdde47c5f7ca45cb697e973894ff4f5d79e13b750ed57d7b66d8defc78e19",
             strip_prefix = "make-4.3",
             urls = [
@@ -437,10 +427,11 @@ def _make_toolchain(version):
 
     fail("Unsupported make version: " + str(version))
 
-def _ninja_toolchain(version):
-    native.register_toolchains(
-        "@rules_foreign_cc//toolchains:built_ninja_toolchain",
-    )
+def _ninja_toolchain(version, register_toolchains):
+    if register_toolchains:
+        native.register_toolchains(
+            "@rules_foreign_cc//toolchains:built_ninja_toolchain",
+        )
     if version == "1.10.2":
         maybe(
             http_archive,

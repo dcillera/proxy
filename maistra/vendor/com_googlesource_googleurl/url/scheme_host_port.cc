@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <ostream>
 #include <tuple>
 
 #include "polyfills/base/check_op.h"

@@ -6,7 +6,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2021, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -168,6 +168,7 @@ my $proxy_address;
 my %custom_skip_reasons;
 
 my $SSHSRVMD5 = "[uninitialized]"; # MD5 of ssh server public key
+my $SSHSRVSHA256 = "[uninitialized]"; # SHA256 of ssh server public key
 my $VERSION="";          # curl's reported version number
 
 my $srcdir = $ENV{'srcdir'} || '.';
@@ -184,6 +185,7 @@ my $UNITDIR="./unit";
 my $SERVERIN="$LOGDIR/server.input"; # what curl sent the server
 my $SERVER2IN="$LOGDIR/server2.input"; # what curl sent the second server
 my $PROXYIN="$LOGDIR/proxy.input"; # what curl sent the proxy
+my $SOCKSIN="$LOGDIR/socksd-request.log"; # what curl sent to the SOCKS proxy
 my $CURLLOG="commands.log"; # all command lines run
 my $FTPDCMD="$LOGDIR/ftpserver.cmd"; # copy server instructions here
 my $SERVERLOGS_LOCK="$LOGDIR/serverlogs.lock"; # server logs advisor read lock
@@ -267,11 +269,16 @@ my $has_manual;     # set if built with built-in manual
 my $has_win32;      # set if built for Windows
 my $has_mingw;      # set if built with MinGW (as opposed to MinGW-w64)
 my $has_hyper = 0;  # set if built with Hyper
+my $has_libssh2;    # set if built with libssh2
+my $has_libssh;     # set if built with libssh
+my $has_oldlibssh;  # set if built with libssh < 0.9.6
+my $has_wolfssh;    # set if built with wolfssh
 my $has_unicode;    # set if libcurl is built with Unicode support
 
 # this version is decided by the particular nghttp2 library that is being used
 my $h2cver = "h2c";
 
+my $has_rustls;     # built with rustls
 my $has_openssl;    # built with a lib using an OpenSSL-like API
 my $has_gnutls;     # built with GnuTLS
 my $has_nss;        # built with NSS
@@ -281,7 +288,6 @@ my $has_sectransp;  # built with Secure Transport
 my $has_boringssl;  # built with BoringSSL
 my $has_libressl;   # built with libressl
 my $has_mbedtls;    # built with mbedTLS
-my $has_mesalink;   # built with MesaLink
 
 my $has_sslpinning; # built with a TLS backend that supports pinning
 
@@ -421,6 +427,7 @@ foreach $protocol (('ftp', 'http', 'ftps', 'https', 'no', 'all')) {
 
 delete $ENV{'SSL_CERT_DIR'} if($ENV{'SSL_CERT_DIR'});
 delete $ENV{'SSL_CERT_PATH'} if($ENV{'SSL_CERT_PATH'});
+delete $ENV{'DEBUGINFOD_URLS'} if($ENV{'DEBUGINFOD_URLS'});
 delete $ENV{'CURL_CA_BUNDLE'} if($ENV{'CURL_CA_BUNDLE'});
 
 #######################################################################
@@ -580,9 +587,11 @@ sub checkcmd {
 #######################################################################
 # Get the list of tests that the tests/data/Makefile.am knows about!
 #
-my $disttests;
+my $disttests = "";
 sub get_disttests {
-    open(D, "<$TESTDIR/Makefile.inc");
+    # If a non-default $TESTDIR is being used there may not be any
+    # Makefile.inc in which case there's nothing to do.
+    open(D, "<$TESTDIR/Makefile.inc") or return;
     while(<D>) {
         chomp $_;
         if(($_ =~ /^#/) ||($_ !~ /test/)) {
@@ -2287,6 +2296,17 @@ sub runsshserver {
         die $msg;
     }
 
+    my $hstpubsha256f = "curl_host_rsa_key.pub_sha256";
+    if(!open(PUBSHA256FILE, "<", $hstpubsha256f) ||
+       (read(PUBSHA256FILE, $SSHSRVSHA256, 48) == 0) ||
+       !close(PUBSHA256FILE))
+    {
+        my $msg = "Fatal: $srvrname pubkey sha256 missing : \"$hstpubsha256f\" : $!";
+        logmsg "$msg\n";
+        stopservers($verbose);
+        die $msg;
+    }
+
     logmsg "RUN: $srvrname on PID $pid2 port $wport\n" if($verbose);
 
     return ($pid2, $sshpid, $wport);
@@ -2862,6 +2882,12 @@ sub setupfeatures {
     $feature{"large_file"} = $has_largefile;
     $feature{"ld_preload"} = ($has_ldpreload && !$debug_build);
     $feature{"libz"} = $has_libz;
+    $feature{"libssh2"} = $has_libssh2;
+    $feature{"libssh"} = $has_libssh;
+    $feature{"oldlibssh"} = $has_oldlibssh;
+    $feature{"rustls"} = $has_rustls;
+    $feature{"wolfssh"} = $has_wolfssh;
+    $feature{"wolfssl"} = $has_wolfssl;
     $feature{"manual"} = $has_manual;
     $feature{"MinGW"} = $has_mingw;
     $feature{"MultiSSL"} = $has_multissl;
@@ -2980,6 +3006,9 @@ sub checksystem {
                $has_gnutls=1;
                $has_sslpinning=1;
            }
+           elsif ($libcurl =~ /rustls-ffi/i) {
+               $has_rustls=1;
+           }
            elsif ($libcurl =~ /nss/i) {
                $has_nss=1;
                $has_sslpinning=1;
@@ -3008,12 +3037,25 @@ sub checksystem {
                $has_cares=1;
                $resolver="c-ares";
            }
-           if ($libcurl =~ /mesalink/i) {
-               $has_mesalink=1;
-           }
            if ($libcurl =~ /Hyper/i) {
                $has_hyper=1;
            }
+            if ($libcurl =~ /libssh2/i) {
+                $has_libssh2=1;
+            }
+            if ($libcurl =~ /libssh\/([0-9.]*)\//i) {
+                $has_libssh=1;
+                if($1 =~ /(\d+)\.(\d+).(\d+)/) {
+                    my $v = $1 * 100 + $2 * 10 + $3;
+                    if($v < 95) {
+                        # before 0.9.5
+                        $has_oldlibssh = 1;
+                    }
+                }
+            }
+            if ($libcurl =~ /wolfssh/i) {
+                $has_wolfssh=1;
+            }
         }
         elsif($_ =~ /^Protocols: (.*)/i) {
             # these are the protocols compiled in to this libcurl
@@ -3374,6 +3416,7 @@ sub subVariables {
     $$thing =~ s/${prefix}USER/$USER/g;
 
     $$thing =~ s/${prefix}SSHSRVMD5/$SSHSRVMD5/g;
+    $$thing =~ s/${prefix}SSHSRVSHA256/$SSHSRVSHA256/g;
 
     # The purpose of FTPTIME2 and FTPTIME3 is to provide times that can be
     # used for time-out tests and that would work on most hosts as these
@@ -3734,7 +3777,9 @@ sub singletest {
 
     # save the new version
     open(D, ">$otest");
-    print D @entiretest;
+    foreach my $bytes (@entiretest) {
+        print D pack('a*', $bytes) or die "Failed to print '$bytes': $!";
+    }
     close(D);
 
     # in case the process changed the file, reload it
@@ -3852,6 +3897,13 @@ sub singletest {
     else {
         # check against the data section
         @reply = getpart("reply", "data");
+        if(@reply) {
+            my %hash = getpartattr("reply", "data");
+            if($hash{'nonewline'}) {
+                # cut off the final newline from the final line of the data
+                chomp($reply[$#reply]);
+            }
+        }
         # get the mode attribute
         my $filemode=$replyattr{'mode'};
         if($filemode && ($filemode eq "text") && $has_textaware) {
@@ -3945,6 +3997,20 @@ sub singletest {
                 return -1;
             }
             my $fileContent = join('', @inputfile);
+
+            # make directories if needed
+            my $path = $filename;
+            # cut off the file name part
+            $path =~ s/^(.*)\/[^\/]*/$1/;
+            my @parts = split(/\//, $path);
+            if($parts[0] eq "log") {
+                # the file is in log/
+                my $d = shift @parts;
+                for(@parts) {
+                    $d .= "/$_";
+                    mkdir $d; # 0777
+                }
+            }
             open(OUTFILE, ">$filename");
             binmode OUTFILE; # for crapage systems, use binary
             if($fileattr{'nonewline'}) {
@@ -4336,6 +4402,12 @@ sub singletest {
 
         # get the mode attribute
         my $filemode=$hash{'mode'};
+        if($filemode && ($filemode eq "text") && $has_hyper) {
+            # text mode check in hyper-mode. Sometimes necessary if the stderr
+            # data *looks* like HTTP and thus has gotten CRLF newlines
+            # mistakenly
+            map s/\r\n/\n/g, @validstderr;
+        }
         if($filemode && ($filemode eq "text") && $has_textaware) {
             # text mode when running on windows: fix line endings
             map s/\r\n/\n/g, @validstderr;
@@ -4551,6 +4623,17 @@ sub singletest {
         }
     }
     $ok .= ($outputok) ? "o" : "-"; # output checked or not
+
+    # verify SOCKS proxy details
+    my @socksprot = getpart("verify", "socks");
+    if(@socksprot) {
+        # Verify the sent SOCKS proxy details
+        my @out = loadarray($SOCKSIN);
+        $res = compare($testnum, $testname, "socks", \@out, \@socksprot);
+        if($res) {
+            return $errorreturncode;
+        }
+    }
 
     # accept multiple comma-separated error codes
     my @splerr = split(/ *, */, $errorcode);
@@ -6016,6 +6099,7 @@ if(azure_check_environment()) {
 #
 
 my $failed;
+my $failedign;
 my $testnum;
 my $ok=0;
 my $ign=0;
@@ -6051,8 +6135,8 @@ foreach $testnum (@at) {
 
     if($error>0) {
         if($error==2) {
-            # ignored test failures are wrapped in ()
-            $failed.= "($testnum) ";
+            # ignored test failures
+            $failedign .= "$testnum ";
         }
         else {
             $failed.= "$testnum ";
@@ -6138,6 +6222,9 @@ if($skipped && !$short) {
 }
 
 if($total) {
+    if($failedign) {
+        logmsg "IGNORED: failed tests: $failedign\n";
+    }
     logmsg sprintf("TESTDONE: $ok tests out of $total reported OK: %d%%\n",
                    $ok/$total*100);
 

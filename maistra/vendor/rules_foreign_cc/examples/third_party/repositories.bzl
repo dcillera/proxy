@@ -4,6 +4,7 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load("@bazel_tools//tools/build_defs/repo:utils.bzl", "maybe")
 load("//apr:apr_repositories.bzl", "apr_repositories")
 load("//apr_util:apr_util_repositories.bzl", "apr_util_repositories")
+load("//autotools:autotools_repositories.bzl", "autotools_repositories")
 load("//bison:bison_repositories.bzl", "bison_repositories")
 load("//cares:cares_repositories.bzl", "cares_repositories")
 load("//curl:curl_repositories.bzl", "curl_repositories")
@@ -27,6 +28,7 @@ def repositories():
     """Load all repositories needed for the targets of rules_foreign_cc_examples_third_party"""
     apr_repositories()
     apr_util_repositories()
+    autotools_repositories()
     bison_repositories()
     cares_repositories()
     curl_repositories()
@@ -48,8 +50,6 @@ def repositories():
     maybe(
         http_archive,
         name = "rules_cc",
-        strip_prefix = "rules_cc-b1c40e1de81913a3c40e5948f78719c28152486d",
-        url = "https://github.com/bazelbuild/rules_cc/archive/b1c40e1de81913a3c40e5948f78719c28152486d.zip",
-        sha256 = "d0c573b94a6ef20ef6ff20154a23d0efcb409fb0e1ff0979cec318dfe42f0cdd",
-        type = "zip",
+        urls = ["https://github.com/bazelbuild/rules_cc/releases/download/0.0.1/rules_cc-0.0.1.tar.gz"],
+        sha256 = "4dccbfd22c0def164c8f47458bd50e0c7148f3d92002cdb459c2a96a68498241",
     )

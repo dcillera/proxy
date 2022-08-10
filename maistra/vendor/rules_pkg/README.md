@@ -1,108 +1,30 @@
-# rules_pkg - Archive building rules
+# Bazel package building
 
--   [Release Notes](#notes)
--   [Overview](#overview)
--   [Roadmap](#roadmap)
--   [Reference](docs/reference.md)
--   [Examples](/examples/readme.md)
+Bazel rules for building tar, zip, deb, and rpm for packages.
 
-<a name="notes"></a>
-## Release Notes
+Use rules-pkg-discuss@googlegroups.com for discussion.
 
-Version 1.0.0 or later (including all currently in-development code) requires
-Bazel 4.0.0 or later.
+CI:
+[![Build status](https://badge.buildkite.com/e12f23186aa579f1e20fcb612a22cd799239c3134bc38e1aff.svg)](https://buildkite.com/bazel/rules-pkg)
 
-<a name="overview"></a>
-## Overview
+## Basic rules
 
-These build rules are used for building various packaging such as tarball
-and debian package.
+### Package building rules
 
-<a name="workspace-setup"></a>
-### WORKSPACE setup
+*   [pkg](https://github.com/bazelbuild/rules_pkg/tree/main/pkg) - Rules for
+    building packages of various types.
+*   [examples](https://github.com/bazelbuild/rules_pkg/tree/main/examples) -
+    Cookbook examples for using the rules.
 
-See [releases](https://github.com/bazelbuild/rules_pkg/releases) for the release
-specific notes.
+As of Bazel 4.x, Bazel uses this rule set for packaging its distribution. Bazel
+still contains a limited version of `pkg_tar` but its feature set is frozen.
+Any new capabilities will be added here.
 
-If you want to use `pkg_rpm()` (either from `rpm.bzl` or `legacy/rpm.bzl`)
-you must instantiate a toolchain to provide the `rpmbuild` tool.  Add this to
-WORKSPACE to use one installed on your system:
+### For developers
 
-```python
-# Find rpmbuild provided on your system.
-load("@rules_pkg//toolchains:rpmbuild_configure.bzl", "find_system_rpmbuild")
-find_system_rpmbuild(name = "rules_pkg_rpmbuild")
-```
+patching.md
+README.md
 
-<a name="basic-example"></a>
-### Basic Example
-
-This example is a simplification of the debian packaging of Bazel:
-
-```python
-load("@rules_pkg//:pkg.bzl", "pkg_tar", "pkg_deb")
-
-
-pkg_tar(
-    name = "bazel-bin",
-    strip_prefix = "/src",
-    package_dir = "/usr/bin",
-    srcs = ["//src:bazel"],
-    mode = "0755",
-)
-
-pkg_tar(
-    name = "bazel-tools",
-    strip_prefix = "/",
-    package_dir = "/usr/share/lib/bazel/tools",
-    srcs = ["//tools:package-srcs"],
-    mode = "0644",
-)
-
-pkg_tar(
-    name = "debian-data",
-    extension = "tar.gz",
-    deps = [
-        ":bazel-bin",
-        ":bazel-tools",
-    ],
-)
-
-pkg_deb(
-    name = "bazel-debian",
-    architecture = "amd64",
-    built_using = "unzip (6.0.1)",
-    data = ":debian-data",
-    depends = [
-        "zlib1g-dev",
-        "unzip",
-    ],
-    description_file = "debian/description",
-    homepage = "http://bazel.build",
-    maintainer = "The Bazel Authors <bazel-dev@googlegroups.com>",
-    package = "bazel",
-    version = "0.1.1",
-)
-```
-
-Here, the Debian package is built from three `pkg_tar` targets:
-
- - `bazel-bin` creates a tarball with the main binary (mode `0755`) in
-   `/usr/bin`,
- - `bazel-tools` create a tarball with the base workspace (mode `0644`) to
-   `/usr/share/bazel/tools` ; the `modes` attribute let us specifies executable
-   files,
- - `debian-data` creates a gzip-compressed tarball that merge the three previous
-   tarballs.
-
-`debian-data` is then used for the data content of the debian archive created by
-`pkg_deb`.
-
-<a name="roadmap"></a>
-## Roadmap
-
- - Add a `pkg_filegroup` rule to facilitate mapping Bazel targets into an the
-   folder layout required by the archive.
- - Support assigning owners and modes to specific files in the archive.
- - Improve RPM support
- - Improve DEB support
+*   [Contributor information](CONTRIBUTING.md) (including contributor license agreements)
+*   [Patch process](patching.md)
+*   [Coding guidelines](developers.md) and other developer information

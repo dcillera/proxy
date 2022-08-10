@@ -6,10 +6,13 @@ load("//build_config:build_config.bzl", "build_config")
 cc_library(
     name = "polyfills",
     hdrs = [
+        "base/allocator/buildflags.h",
         "base/base_export.h",
         "base/check.h",
         "base/check_op.h",
         "base/component_export.h",
+        "base/cpu_reduction_experiment.h",
+        "base/dcheck_is_on.h",
         "base/debug/alias.h",
         "base/export_template.h",
         "base/logging.h",

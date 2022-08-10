@@ -22,10 +22,13 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 class Parameters {
  public:
@@ -76,12 +79,12 @@ class Parameters {
     TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(value);
   }
 
-  static bool lazy_per_cpu_caches() {
-    return lazy_per_cpu_caches_enabled_.load(std::memory_order_relaxed);
+  static bool shuffle_per_cpu_caches() {
+    return shuffle_per_cpu_caches_enabled_.load(std::memory_order_relaxed);
   }
 
-  static void set_lazy_per_cpu_caches(bool value) {
-    TCMalloc_Internal_SetLazyPerCpuCachesEnabled(value);
+  static bool prioritize_spans() {
+    return prioritize_spans_enabled_.load(std::memory_order_relaxed);
   }
 
   static bool per_cpu_caches() {
@@ -106,11 +109,35 @@ class Parameters {
 
   static absl::Duration filler_skip_subrelease_interval();
 
+  static bool per_cpu_caches_dynamic_slab_enabled() {
+    return per_cpu_caches_dynamic_slab_enabled_.load(std::memory_order_relaxed);
+  }
+  static void set_per_cpu_caches_dynamic_slab_enabled(bool value) {
+    TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(value);
+  }
+
+  static double per_cpu_caches_dynamic_slab_grow_threshold() {
+    return per_cpu_caches_dynamic_slab_grow_threshold_.load(
+        std::memory_order_relaxed);
+  }
+  static void set_per_cpu_caches_dynamic_slab_grow_threshold(double value) {
+    TCMalloc_Internal_SetPerCpuCachesDynamicSlabGrowThreshold(value);
+  }
+
+  static double per_cpu_caches_dynamic_slab_shrink_threshold() {
+    return per_cpu_caches_dynamic_slab_shrink_threshold_.load(
+        std::memory_order_relaxed);
+  }
+  static void set_per_cpu_caches_dynamic_slab_shrink_threshold(double value) {
+    TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(value);
+  }
+
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
   friend void ::TCMalloc_Internal_SetGuardedSamplingRate(int64_t v);
   friend void ::TCMalloc_Internal_SetHPAASubrelease(bool v);
-  friend void ::TCMalloc_Internal_SetLazyPerCpuCachesEnabled(bool v);
+  friend void ::TCMalloc_Internal_SetShufflePerCpuCachesEnabled(bool v);
+  friend void ::TCMalloc_Internal_SetPrioritizeSpansEnabled(bool v);
   friend void ::TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v);
   friend void ::TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v);
   friend void ::TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(double v);
@@ -119,17 +146,31 @@ class Parameters {
 
   friend void ::TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
       absl::Duration v);
+  friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v);
+  friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabGrowThreshold(
+      double v);
+  friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(
+      double v);
+
+  friend void TCMalloc_Internal_SetLifetimeAllocatorOptions(
+      absl::string_view s);
 
   static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
   static std::atomic<int64_t> guarded_sampling_rate_;
-  static std::atomic<bool> lazy_per_cpu_caches_enabled_;
+  static std::atomic<bool> shuffle_per_cpu_caches_enabled_;
+  static std::atomic<bool> prioritize_spans_enabled_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;
   static std::atomic<double> peak_sampling_heap_growth_fraction_;
   static std::atomic<bool> per_cpu_caches_enabled_;
   static std::atomic<int64_t> profile_sampling_rate_;
+  static std::atomic<bool> per_cpu_caches_dynamic_slab_enabled_;
+  static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
+  static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_PARAMETERS_H_

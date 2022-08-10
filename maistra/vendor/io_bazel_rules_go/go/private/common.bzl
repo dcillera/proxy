@@ -173,42 +173,33 @@ def has_shared_lib_extension(path):
     Matches filenames of shared libraries, with or without a version number extension.
     """
     return (has_simple_shared_lib_extension(path) or
-            has_versioned_shared_lib_extension(path))
+            get_versioned_shared_lib_extension(path))
 
 def has_simple_shared_lib_extension(path):
     """
     Matches filenames of shared libraries, without a version number extension.
     """
-    if any([path.endswith(ext) for ext in SHARED_LIB_EXTENSIONS]):
-        return True
-    return False
+    return any([path.endswith(ext) for ext in SHARED_LIB_EXTENSIONS])
 
-def has_versioned_shared_lib_extension(path):
-    """Returns whether the path appears to be an .so file."""
-    if not path[-1].isdigit():
-        return False
+def get_versioned_shared_lib_extension(path):
+    """If appears to be an versioned .so or .dylib file, return the extension; otherwise empty"""
+    parts = path.split("/")[-1].split(".")
+    if not parts[-1].isdigit():
+        return ""
 
-    so_location = path.rfind(".so")
+    # only iterating to 1 because parts[0] has to be the lib name
+    for i in range(len(parts) - 1, 0, -1):
+        if not parts[i].isdigit():
+            if parts[i] == "dylib" or parts[i] == "so":
+                return ".".join(parts[i:])
 
-    # Version extensions are only allowed for .so files
-    if so_location == -1:
-        return False
-    last_dot = so_location
-    for i in range(so_location + 3, len(path)):
-        if path[i] == ".":
-            if i - last_dot > 1:
-                last_dot = i
-            else:
-                return False
-        elif not path[i].isdigit():
-            return False
+            # something like foo.bar.1.2 or dylib.1.2
+            return ""
 
-    if last_dot == len(path):
-        return False
+    # something like 1.2.3, or so.1.2, or dylib.1.2, or foo.1.2
+    return ""
 
-    return True
-
-MINIMUM_BAZEL_VERSION = "3.0.0"
+MINIMUM_BAZEL_VERSION = "4.2.1"
 
 def as_list(v):
     """Returns a list, tuple, or depset as a list."""

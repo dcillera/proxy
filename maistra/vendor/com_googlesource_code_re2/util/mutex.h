@@ -12,6 +12,7 @@
 
 #ifdef _WIN32
 // Requires Windows Vista or Windows Server 2008 at minimum.
+#include <windows.h>
 #if defined(WINVER) && WINVER >= 0x0600
 #define MUTEX_IS_WIN32_SRWLOCK
 #endif
@@ -26,15 +27,14 @@
 #endif
 
 #if defined(MUTEX_IS_WIN32_SRWLOCK)
-#include <windows.h>
 typedef SRWLOCK MutexType;
 #elif defined(MUTEX_IS_PTHREAD_RWLOCK)
 #include <pthread.h>
 #include <stdlib.h>
 typedef pthread_rwlock_t MutexType;
 #else
-#include <mutex>
-typedef std::mutex MutexType;
+#include <shared_mutex>
+typedef std::shared_mutex MutexType;
 #endif
 
 namespace re2 {
@@ -66,7 +66,7 @@ class Mutex {
 
 #if defined(MUTEX_IS_WIN32_SRWLOCK)
 
-Mutex::Mutex()             { InitializeSRWLock(&mutex_); }
+Mutex::Mutex()             : mutex_(SRWLOCK_INIT) { }
 Mutex::~Mutex()            { }
 void Mutex::Lock()         { AcquireSRWLockExclusive(&mutex_); }
 void Mutex::Unlock()       { ReleaseSRWLockExclusive(&mutex_); }
@@ -95,8 +95,8 @@ Mutex::Mutex()             { }
 Mutex::~Mutex()            { }
 void Mutex::Lock()         { mutex_.lock(); }
 void Mutex::Unlock()       { mutex_.unlock(); }
-void Mutex::ReaderLock()   { Lock(); }  // C++11 doesn't have std::shared_mutex.
-void Mutex::ReaderUnlock() { Unlock(); }
+void Mutex::ReaderLock()   { mutex_.lock_shared(); }
+void Mutex::ReaderUnlock() { mutex_.unlock_shared(); }
 
 #endif
 

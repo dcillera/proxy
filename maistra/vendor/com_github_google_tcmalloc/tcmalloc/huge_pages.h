@@ -28,22 +28,35 @@
 
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/pages.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 inline constexpr Length kPagesPerHugePage =
     Length(1 << (kHugePageShift - kPageShift));
 
 // A single aligned huge page.
 struct HugePage {
-  void *start_addr() const {
-    return reinterpret_cast<void *>(pn << kHugePageShift);
+  void* start_addr() const {
+    ASSERT(pn <= kMaxPageNumber);
+    return reinterpret_cast<void*>(pn << kHugePageShift);
   }
 
-  PageId first_page() const { return PageIdContaining(start_addr()); }
+  PageId first_page() const {
+    ASSERT(pn <= kMaxPageNumber);
+    return PageId(pn << (kHugePageShift - kPageShift));
+  }
 
-  size_t index() const { return pn; }
+  size_t index() const {
+    ASSERT(pn <= kMaxPageNumber);
+    return pn;
+  }
+
+  static constexpr uintptr_t kMaxPageNumber =
+      std::numeric_limits<uintptr_t>::max() >> kHugePageShift;
 
   uintptr_t pn;
 };
@@ -72,29 +85,33 @@ struct HugeLength {
 
 // Literal constructors (made explicit to avoid accidental uses when
 // another unit was meant.)
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugeLength NHugePages(size_t n) { return HugeLength(n); }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugeLength HLFromBytes(size_t bytes) {
   return NHugePages(bytes / kHugePageSize);
 }
 
 // Rounds *up* to the nearest hugepage.
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugeLength HLFromPages(Length pages) {
   return NHugePages((pages + kPagesPerHugePage - Length(1)) /
                     kPagesPerHugePage);
 }
 
-inline HugeLength &operator++(HugeLength &len) {  // NOLINT(runtime/references)
+inline HugeLength& operator++(HugeLength& len) {  // NOLINT(runtime/references)
   len.n++;
   return len;
 }
 
-inline HugePage &operator++(HugePage &p) {  // NOLINT(runtime/references)
+inline HugePage& operator++(HugePage& p) {  // NOLINT(runtime/references)
+  ASSERT(p.pn + 1 <= HugePage::kMaxPageNumber);
   p.pn++;
   return p;
 }
 
-inline HugeLength &operator--(HugeLength &len) {  // NOLINT(runtime/references)
+inline HugeLength& operator--(HugeLength& len) {  // NOLINT(runtime/references)
   ASSERT(len.n >= 1);
   len.n--;
   return len;
@@ -104,106 +121,129 @@ inline constexpr bool operator<(HugeLength lhs, HugeLength rhs) {
   return lhs.n < rhs.n;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator>(HugeLength lhs, HugeLength rhs) {
   return lhs.n > rhs.n;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator<=(HugeLength lhs, HugeLength rhs) {
   return lhs.n <= rhs.n;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator<(HugePage lhs, HugePage rhs) {
   return lhs.pn < rhs.pn;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator>(HugePage lhs, HugePage rhs) {
   return lhs.pn > rhs.pn;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator>=(HugeLength lhs, HugeLength rhs) {
   return lhs.n >= rhs.n;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator<=(HugePage lhs, HugePage rhs) {
   return lhs.pn <= rhs.pn;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator>=(HugePage lhs, HugePage rhs) {
   return lhs.pn >= rhs.pn;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator==(HugePage lhs, HugePage rhs) {
   return lhs.pn == rhs.pn;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator!=(HugePage lhs, HugePage rhs) {
   return !(lhs == rhs);
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator==(HugeLength lhs, HugeLength rhs) {
   return lhs.n == rhs.n;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator!=(HugeLength lhs, HugeLength rhs) {
   return lhs.n != rhs.n;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr size_t operator/(HugeLength lhs, HugeLength rhs) {
   return lhs.n / rhs.n;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugeLength operator*(HugeLength lhs, size_t rhs) {
   return NHugePages(lhs.n * rhs);
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugeLength operator/(HugeLength lhs, size_t rhs) {
   return NHugePages(lhs.n / rhs);
 }
 
-inline HugeLength &operator*=(HugeLength &lhs, size_t rhs) {
+inline HugeLength& operator*=(HugeLength& lhs, size_t rhs) {
   lhs.n *= rhs;
   return lhs;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugeLength operator%(HugeLength lhs, HugeLength rhs) {
   return NHugePages(lhs.n % rhs.n);
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugePage operator+(HugePage lhs, HugeLength rhs) {
+  ASSERT(lhs.pn + rhs.n <= HugePage::kMaxPageNumber);
   return HugePage{lhs.pn + rhs.n};
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugePage operator+(HugeLength lhs, HugePage rhs) {
   return rhs + lhs;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugePage operator-(HugePage lhs, HugeLength rhs) {
   return ASSERT(lhs.pn >= rhs.n), HugePage{lhs.pn - rhs.n};
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugeLength operator-(HugePage lhs, HugePage rhs) {
   return ASSERT(lhs.pn >= rhs.pn), NHugePages(lhs.pn - rhs.pn);
 }
 
-inline HugePage &operator+=(HugePage &lhs, HugeLength rhs) {
+inline HugePage& operator+=(HugePage& lhs, HugeLength rhs) {
+  ASSERT(lhs.pn + rhs.n <= HugePage::kMaxPageNumber);
   lhs.pn += rhs.n;
   return lhs;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugeLength operator+(HugeLength lhs, HugeLength rhs) {
   return NHugePages(lhs.n + rhs.n);
 }
 
-inline HugeLength &operator+=(HugeLength &lhs, HugeLength rhs) {
+inline HugeLength& operator+=(HugeLength& lhs, HugeLength rhs) {
   lhs.n += rhs.n;
   return lhs;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugeLength operator-(HugeLength lhs, HugeLength rhs) {
   return ASSERT(lhs.n >= rhs.n), NHugePages(lhs.n - rhs.n);
 }
 
-inline HugeLength &operator-=(HugeLength &lhs, HugeLength rhs) {
+inline HugeLength& operator-=(HugeLength& lhs, HugeLength rhs) {
   ASSERT(lhs.n >= rhs.n);
   lhs.n -= rhs.n;
   return lhs;
@@ -213,24 +253,26 @@ inline bool HugeLength::overflows() const {
   return *this > HLFromBytes(std::numeric_limits<size_t>::max());
 }
 
-inline void PrintTo(const HugeLength &n, ::std::ostream *os) {
+inline void PrintTo(const HugeLength& n, ::std::ostream* os) {
   *os << n.raw_num() << "hps";
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline HugePage HugePageContaining(PageId p) {
   return {p.index() >> (kHugePageShift - kPageShift)};
 }
 
-inline HugePage HugePageContaining(void *p) {
+TCMALLOC_ATTRIBUTE_CONST
+inline HugePage HugePageContaining(void* p) {
   return HugePageContaining(PageIdContaining(p));
 }
 
 // A set of contiguous huge pages.
 struct HugeRange {
-  void *start_addr() const { return first.start_addr(); }
-  void *end_addr() const { return (first + n).start_addr(); }
+  void* start_addr() const { return first.start_addr(); }
+  void* end_addr() const { return (first + n).start_addr(); }
   size_t byte_len() const {
-    return static_cast<char *>(end_addr()) - static_cast<char *>(start_addr());
+    return static_cast<char*>(end_addr()) - static_cast<char*>(start_addr());
   }
 
   // Assume any range starting at 0 is bogus.
@@ -243,7 +285,7 @@ struct HugeRange {
   HugePage operator[](HugeLength i) const { return first + i; }
 
   template <typename H>
-  friend H AbslHashValue(H h, const HugeRange &r) {
+  friend H AbslHashValue(H h, const HugeRange& r) {
     return H::combine(std::move(h), r.start().start_addr(), r.len().raw_num());
   }
 
@@ -295,5 +337,7 @@ inline std::pair<HugeRange, HugeRange> Split(HugeRange r, HugeLength n) {
   }
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 #endif  // TCMALLOC_HUGE_PAGES_H_

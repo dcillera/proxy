@@ -19,7 +19,7 @@ Vulnerability Handling
 The typical process for handling a new security vulnerability is as follows.
 
 No information should be made public about a vulnerability until it is
-formally announced at the end of this process. That means, for example that a
+formally announced at the end of this process. That means, for example, that a
 bug tracker entry must NOT be created to track the issue since that will make
 the issue public and it should not be discussed on any of the project's public
 mailing lists. Also messages associated with any commits should not make any
@@ -68,7 +68,7 @@ announcement.
   should ideally contain the CVE number.
 
 - The security team also decides on and delivers a monetary reward to the
-  reporter as per the bug-bounty polices.
+  reporter as per the bug-bounty policies.
 
 - No more than 10 days before release, inform
   [distros@openwall](https://oss-security.openwall.org/wiki/mailing-lists/distros)
@@ -99,11 +99,11 @@ This is a private mailing list for discussions on and about curl security
 issues.
 
 Who is on this list? There are a couple of criteria you must meet, and then we
-might ask you to join the list or you can ask to join it. It really isn't very
-formal. We basically only require that you have a long-term presence in the
-curl project and you have shown an understanding for the project and its way
-of working. You must've been around for a good while and you should have no
-plans in vanishing in the near future.
+might ask you to join the list or you can ask to join it. It really is not a
+formal process. We basically only require that you have a long-term presence
+in the curl project and you have shown an understanding for the project and
+its way of working. You must have been around for a good while and you should
+have no plans of vanishing in the near future.
 
 We do not make the list of participants public mostly because it tends to vary
 somewhat over time and a list somewhere will only risk getting outdated.

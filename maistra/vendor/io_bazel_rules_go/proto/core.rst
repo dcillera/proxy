@@ -222,7 +222,7 @@ Attributes
 | :param:`embed`      | :type:`label_list`   | :value:`[]`                                     |
 +---------------------+----------------------+-------------------------------------------------+
 | List of Go libraries that should be combined with this library. The ``srcs``                 |
-| and ``deps`` from these libraries will be incorporated this library when it                  |
+| and ``deps`` from these libraries will be incorporated into this library when it             |
 | is compiled. Embedded libraries must have the same ``importpath`` and                        |
 | Go package name.                                                                             |
 +---------------------+----------------------+-------------------------------------------------+
@@ -324,7 +324,7 @@ you can do so with a separate ``go_library`` that embeds the
   load("@io_bazel_rules_go//go:def.bzl", "go_library")
 
   go_library(
-      name = "go_default_library",
+      name = "foo",
       srcs = ["extra.go"],
       embed = [":foo_go_proto"],
       importpath = "example.com/repo/foo",

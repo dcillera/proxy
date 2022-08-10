@@ -9,11 +9,12 @@ load("//toolchains:toolchains.bzl", "built_toolchains", "prebuilt_toolchains", "
 def rules_foreign_cc_dependencies(
         native_tools_toolchains = [],
         register_default_tools = True,
-        cmake_version = "3.21.2",
+        cmake_version = "3.22.1",
         make_version = "4.3",
         ninja_version = "1.10.2",
         register_preinstalled_tools = True,
-        register_built_tools = True):
+        register_built_tools = True,
+        register_toolchains = True):
     """Call this function from the WORKSPACE file to initialize rules_foreign_cc \
     dependencies and let neccesary code generation happen \
     (Code generation is needed to support different variants of the C++ Starlark API.).
@@ -41,20 +42,31 @@ def rules_foreign_cc_dependencies(
             installed on the exec host
 
         register_built_tools: If true, toolchains that build the tools from source are registered
+
+        register_toolchains: If true, registers the toolchains via native.register_toolchains. Used by bzlmod
     """
 
-    register_framework_toolchains()
+    register_framework_toolchains(register_toolchains = register_toolchains)
 
-    native.register_toolchains(*native_tools_toolchains)
+    if (register_toolchains):
+        native.register_toolchains(*native_tools_toolchains)
+
+    native.register_toolchains(
+        str(Label("//toolchains:preinstalled_autoconf_toolchain")),
+        str(Label("//toolchains:preinstalled_automake_toolchain")),
+        str(Label("//toolchains:preinstalled_m4_toolchain")),
+        str(Label("//toolchains:preinstalled_pkgconfig_toolchain")),
+    )
 
     if register_default_tools:
-        prebuilt_toolchains(cmake_version, ninja_version)
+        prebuilt_toolchains(cmake_version, ninja_version, register_toolchains)
 
     if register_built_tools:
         built_toolchains(
             cmake_version = cmake_version,
             make_version = make_version,
             ninja_version = ninja_version,
+            register_toolchains = register_toolchains,
         )
 
     if register_preinstalled_tools:
@@ -63,9 +75,11 @@ def rules_foreign_cc_dependencies(
     maybe(
         http_archive,
         name = "bazel_skylib",
-        sha256 = "1c531376ac7e5a180e0237938a2536de0c54d93f5c278634818e0efc952dd56c",
+        # `main` as of 2021-10-27
+        # Release request: https://github.com/bazelbuild/bazel-skylib/issues/336
         urls = [
-            "https://mirror.bazel.build/github.com/bazelbuild/bazel-skylib/releases/download/1.0.3/bazel-skylib-1.0.3.tar.gz",
-            "https://github.com/bazelbuild/bazel-skylib/releases/download/1.0.3/bazel-skylib-1.0.3.tar.gz",
+            "https://github.com/bazelbuild/bazel-skylib/archive/6e30a77347071ab22ce346b6d20cf8912919f644.zip",
         ],
+        strip_prefix = "bazel-skylib-6e30a77347071ab22ce346b6d20cf8912919f644",
+        sha256 = "247361e64b2a85b40cb45b9c071e42433467c6c87546270cbe2672eb9f317b5a",
     )

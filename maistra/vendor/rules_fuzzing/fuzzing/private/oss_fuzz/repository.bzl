@@ -17,34 +17,6 @@
 def _to_list_repr(elements):
     return ", ".join([repr(element) for element in elements])
 
-def _get_machine_arch(repository_ctx):
-    result = repository_ctx.execute(["uname", "-m"])
-    if result.return_code != 0:
-        fail("Could not obtain machine architecture: %s" % result.stderr)
-    return result.stdout.strip()
-
-def _ubsan_standalone_cxx_lib_name(arch):
-    return "libclang_rt.ubsan_standalone_cxx-%s.a" % arch
-
-def _find_llvm_lib(repository_ctx, target_file):
-    result = repository_ctx.execute([
-        repository_ctx.which("bash"),
-        "-c",
-        """
-            set -euf -o pipefail
-            set -x
-            find "$({llvm_config} --libdir)" -name {target_file} | head -1
-        """.format(
-            llvm_config = "llvm-config",
-            target_file = target_file,
-        ),
-    ], quiet = False)
-    file_path = result.stdout.strip()
-
-    if result.return_code != 0 or not file_path:
-        fail("Could not find LLVM library '%s'" % target_file)
-    return file_path
-
 def _extract_build_params(
         repository_ctx,
         fuzzing_engine_library,
@@ -57,16 +29,11 @@ def _extract_build_params(
     instrum_cxxopts = []
 
     if sanitizer == "undefined":
-        ubsan_lib_base_name = _ubsan_standalone_cxx_lib_name(_get_machine_arch(repository_ctx))
-
-        # The Clang linker does not link the UBSAN runtime library by default.
-        # We force an explicit linking here.
-        ubsan_lib_path = _find_llvm_lib(
-            repository_ctx,
-            ubsan_lib_base_name,
-        )
-        repository_ctx.symlink(repository_ctx.path(ubsan_lib_path), ubsan_lib_base_name)
-        stub_srcs.append(ubsan_lib_base_name)
+        # Bazel uses clang, not clang++, as the linker, which does not link the
+        # C++ UBSan runtime library by default, but can be instructed to do so
+        # with a flag.
+        # https://github.com/bazelbuild/bazel/issues/11122#issuecomment-896613570
+        stub_linkopts.append("-fsanitize-link-c++-runtime")
 
     if fuzzing_engine_library:
         if fuzzing_engine_library.startswith("-"):
@@ -103,12 +70,30 @@ def _extract_build_params(
         instrum_cxxopts = instrum_cxxopts,
     )
 
+# The filenames under which the various Jazzer binaries are available in $OUT
+# and in @rules_fuzzing_oss_fuzz.
+_JAZZER_BINARIES = [
+    "jazzer_agent_deploy.jar",
+    "jazzer_driver",
+    "jazzer_driver_with_sanitizer",
+]
+
+def _export_jazzer(repository_ctx, out_path):
+    if out_path == None:
+        return []
+    exported_files = []
+    for jazzer_binary in _JAZZER_BINARIES:
+        repository_ctx.symlink(out_path + "/" + jazzer_binary, jazzer_binary)
+        exported_files.append(jazzer_binary)
+    return exported_files
+
 def _oss_fuzz_repository(repository_ctx):
     environ = repository_ctx.os.environ
     fuzzing_engine_library = environ.get("LIB_FUZZING_ENGINE")
     sanitizer = environ.get("SANITIZER")
     cflags = environ.get("FUZZING_CFLAGS") or environ.get("CFLAGS", "")
     cxxflags = environ.get("FUZZING_CXXFLAGS") or environ.get("CXXFLAGS", "")
+    out_path = environ.get("OUT")
 
     build_params = _extract_build_params(
         repository_ctx,
@@ -117,6 +102,7 @@ def _oss_fuzz_repository(repository_ctx):
         cflags.split(" "),
         cxxflags.split(" "),
     )
+    exported_files = _export_jazzer(repository_ctx, out_path)
 
     repository_ctx.template(
         "BUILD",
@@ -124,6 +110,7 @@ def _oss_fuzz_repository(repository_ctx):
         {
             "%{stub_srcs}": _to_list_repr(build_params.stub_srcs),
             "%{stub_linkopts}": _to_list_repr(build_params.stub_linkopts),
+            "%{exported_files}": _to_list_repr(exported_files),
         },
     )
     repository_ctx.template(
@@ -148,6 +135,7 @@ oss_fuzz_repository = repository_rule(
         "CFLAGS",
         "CXXFLAGS",
         "SANITIZER",
+        "OUT",
     ],
     local = True,
     doc = """

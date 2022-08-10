@@ -41,6 +41,7 @@ def _environment_plist(ctx):
         config_vars = ctx.var,
         device_families = None,
         disabled_features = ctx.disabled_features,
+        explicit_minimum_deployment_os = None,
         explicit_minimum_os = None,
         features = ctx.features,
         objc_fragment = None,
@@ -70,7 +71,7 @@ environment_plist = rule(
         rule_factory.common_tool_attributes,
         {
             "_environment_plist_tool": attr.label(
-                cfg = "host",
+                cfg = "exec",
                 executable = True,
                 default = Label("@build_bazel_rules_apple//tools/environment_plist"),
             ),

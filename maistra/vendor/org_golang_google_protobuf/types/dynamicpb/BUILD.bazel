@@ -22,8 +22,8 @@ alias(
 go_test(
     name = "dynamicpb_test",
     srcs = ["dynamic_test.go"],
-    embed = [":dynamicpb"],
     deps = [
+        ":dynamicpb",
         "//internal/testprotos/test",
         "//internal/testprotos/test3",
         "//proto",

@@ -1,5 +1,9 @@
 #!/bin/bash
 
+set -e
+set -o pipefail
+set -x
+
 DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 source "$DIR/common.sh"
 
@@ -19,4 +23,3 @@ time bazel test \
   ${COMMON_FLAGS} \
   --build_tests_only \
   //test/...
-

@@ -10,3 +10,10 @@ cc_library(
     copts = build_config.default_copts,
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "buildflag",
+    hdrs = ["buildflag.h"],
+    copts = build_config.default_copts,
+    visibility = ["//visibility:public"],
+)

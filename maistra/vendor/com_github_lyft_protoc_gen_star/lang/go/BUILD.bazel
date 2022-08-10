@@ -32,6 +32,7 @@ go_test(
         "name_test.go",
         "package_test.go",
         "parameters_test.go",
+        "type_name_p2_presence_test.go",
         "type_name_test.go",
     ],
     embed = [":go"],

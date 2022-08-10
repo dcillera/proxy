@@ -13,6 +13,7 @@
 
 #include "polyfills/base/component_export.h"
 #include "polyfills/base/debug/alias.h"
+#include "base/debug/crash_logging.h"
 #include "base/strings/string_piece.h"
 #include "polyfills/third_party/perfetto/include/perfetto/tracing/traced_value.h"
 #include "url/third_party/mozilla/url_parse.h"
@@ -197,7 +198,13 @@ class COMPONENT_EXPORT(URL) GURL {
   //
   // It is an error to get the origin of an invalid URL. The result
   // will be the empty URL.
-  GURL GetOrigin() const;
+  //
+  // WARNING: Please avoid converting urls into origins if at all possible!
+  // //docs/security/origin-vs-url.md is a list of gotchas that can result. Such
+  // conversions will likely return a wrong result for about:blank and/or
+  // in the presence of iframe.sandbox attribute. Prefer to get origins directly
+  // from the source (e.g. RenderFrameHost::GetLastCommittedOrigin).
+  GURL DeprecatedGetOriginAsURL() const;
 
   // A helper function to return a GURL stripped from the elements that are not
   // supposed to be sent as HTTP referrer: username, password and ref fragment.
@@ -258,6 +265,10 @@ class COMPONENT_EXPORT(URL) GURL {
   bool SchemeIsBlob() const {
     return SchemeIs(url::kBlobScheme);
   }
+
+  // Returns true if the scheme is a local scheme, as defined in Fetch:
+  // https://fetch.spec.whatwg.org/#local-scheme
+  bool SchemeIsLocal() const;
 
   // For most URLs, the "content" is everything after the scheme (skipping the
   // scheme delimiting colon) and before the fragment (skipping the fragment
@@ -468,7 +479,7 @@ class COMPONENT_EXPORT(URL) GURL {
     return gurl_base::StringPiece(&spec_[comp.begin], comp.len);
   }
 
-  void ProcessFileOrFileSystemURLAfterReplaceComponents(GURL& url) const;
+  void ProcessFileSystemURLAfterReplaceComponents();
 
   // The actual text of the URL, in canonical ASCII form.
   std::string spec_;
@@ -509,5 +520,21 @@ bool operator!=(const gurl_base::StringPiece& spec, const GURL& x);
 // preserved in crash dumps.
 #define DEBUG_ALIAS_FOR_GURL(var_name, url) \
   DEBUG_ALIAS_FOR_CSTR(var_name, (url).possibly_invalid_spec().c_str(), 128)
+
+namespace url::debug {
+
+class COMPONENT_EXPORT(URL) ScopedUrlCrashKey {
+ public:
+  ScopedUrlCrashKey(gurl_base::debug::CrashKeyString* crash_key, const GURL& value);
+  ~ScopedUrlCrashKey();
+
+  ScopedUrlCrashKey(const ScopedUrlCrashKey&) = delete;
+  ScopedUrlCrashKey& operator=(const ScopedUrlCrashKey&) = delete;
+
+ private:
+  gurl_base::debug::ScopedCrashKeyString scoped_string_value_;
+};
+
+}  // namespace url::debug
 
 #endif  // URL_GURL_H_

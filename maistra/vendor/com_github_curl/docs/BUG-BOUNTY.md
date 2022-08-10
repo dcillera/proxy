@@ -16,7 +16,7 @@ this program.
 See all details at [https://hackerone.com/curl](https://hackerone.com/curl)
 
 This bounty is relying on funds from sponsors. If you use curl professionally,
-consider help funding this! See
+consider helping fund this! See
 [https://opencollective.com/curl](https://opencollective.com/curl) for
 details.
 
@@ -35,7 +35,7 @@ Check out the current award amounts at [https://hackerone.com/curl](https://hack
 # Who is eligible for a reward?
 
 Everyone and anyone who reports a security problem in a released curl version
-that hasn't already been reported can ask for a bounty.
+that has not already been reported can ask for a bounty.
 
 Vulnerabilities in features that are off by default and documented as
 experimental are not eligible for a reward.
@@ -71,7 +71,7 @@ can raise the amounts depending on the particular issue.
 # What happens if the bounty fund is drained?
 
 The bounty fund depends on sponsors. If we pay out more bounties than we add,
-the fund will eventually drain. If that end up happening, we will simply not
+the fund will eventually drain. If that ends up happening, we will simply not
 be able to pay out as high bounties as we would like and hope that we can
 convince new sponsors to help us top up the fund again.
 

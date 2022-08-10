@@ -8,7 +8,7 @@ load("//foreign_cc/private/framework:helpers.bzl", "convert_shell_script", "sheb
 # Common attributes for all built_tool rules
 FOREIGN_CC_BUILT_TOOLS_ATTRS = {
     "env": attr.string_dict(
-        doc = "Environment variables to set during the build.",
+        doc = "Environment variables to set during the build. This attribute is subject to make variable substitution.",
         default = {},
     ),
     "srcs": attr.label(
@@ -102,7 +102,7 @@ def built_tool_rule_impl(ctx, script_lines, out_dir, mnemonic):
     )
 
     return [
-        DefaultInfo(files = depset([out_dir])),
+        DefaultInfo(files = depset([out_dir]), runfiles = ctx.runfiles(files = [out_dir])),
         OutputGroupInfo(
             log_file = depset([wrapped_outputs.log_file]),
             script_file = depset([wrapped_outputs.script_file]),

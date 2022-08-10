@@ -212,7 +212,7 @@ TARGET_STCC= $(STATIC_CC)
 TARGET_DYNCC= $(DYNAMIC_CC)
 TARGET_LD= $(CROSS)$(CC)
 TARGET_AR= $(CROSS)ar rcus 2>/dev/null
-TARGET_STRIP= $(CROSS)strip
+TARGET_STRIP?= $(CROSS)strip
 
 TARGET_LIBPATH= $(or $(PREFIX),/usr/local)/$(or $(MULTILIB),lib)
 TARGET_SONAME= libluajit-$(ABIVER).so.$(MAJVER)

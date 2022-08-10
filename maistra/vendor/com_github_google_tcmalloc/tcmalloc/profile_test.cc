@@ -28,9 +28,11 @@
 #include "gtest/gtest.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/synchronization/blocking_counter.h"
+#include "benchmark/benchmark.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/new_extension.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
@@ -38,16 +40,25 @@ namespace {
 
 TEST(AllocationSampleTest, TokenAbuse) {
   auto token = MallocExtension::StartAllocationProfiling();
-  ::operator delete(::operator new(512 * 1024 * 1024));
+  void* ptr = ::operator new(512 * 1024 * 1024);
+  // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
+  benchmark::DoNotOptimize(ptr);
+  ::operator delete(ptr);
   // Repeated Claims should happily return null.
   auto profile = std::move(token).Stop();
   int count = 0;
-  profile.Iterate([&](const Profile::Sample &) { count++; });
+  profile.Iterate([&](const Profile::Sample&) { count++; });
+
+#if !defined(UNDEFINED_BEHAVIOR_SANITIZER)
+  // UBSan does not implement our profiling API, but running the test can
+  // validate the correctness of the new/delete pairs.
   EXPECT_EQ(count, 1);
+#endif
 
   auto profile2 = std::move(token).Stop();  // NOLINT: use-after-move intended
   int count2 = 0;
-  profile2.Iterate([&](const Profile::Sample &) { count2++; });
+  profile2.Iterate([&](const Profile::Sample&) { count2++; });
   EXPECT_EQ(count2, 0);
 
   // Delete (on the scope ending) without Claim should also be OK.
@@ -76,12 +87,12 @@ TEST(AllocationSampleTest, RaceToClaim) {
     counter.DecrementCount();
 
     const int kNum = 1000000;
-    std::vector<void *> ptrs;
+    std::vector<void*> ptrs;
     while (!stop) {
       for (int i = 0; i < kNum; i++) {
         ptrs.push_back(::operator new(1));
       }
-      for (void *p : ptrs) {
+      for (void* p : ptrs) {
         sized_delete(p, 1);
       }
       ptrs.clear();
@@ -107,18 +118,28 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   // sizes, delete it as we go--it shouldn't matter for the sample count.
   static const size_t kTotalPerSize = 512 * 1024 * 1024;
 
-  // objects we don't delete as we go
-  void *list = nullptr;
-
   // (object size, object alignment, keep objects)
   struct Requests {
     size_t size;
     size_t alignment;
+    absl::optional<tcmalloc::hot_cold_t> hot_cold;
+    bool expected_hot;
     bool keep;
+    // objects we don't delete as we go
+    void* list = nullptr;
   };
   std::vector<Requests> sizes = {
-      {8, 0, false},          {16, 16, true},        {1024, 0, false},
-      {64 * 1024, 64, false}, {512 * 1024, 0, true}, {1024 * 1024, 128, true}};
+      {8, 0, absl::nullopt, true, false},
+      {16, 16, absl::nullopt, true, true},
+      {1024, 0, absl::nullopt, true, false},
+      {64 * 1024, 64, absl::nullopt, true, false},
+      {512 * 1024, 0, absl::nullopt, true, true},
+      {1024 * 1024, 128, absl::nullopt, true, true},
+      // As an implementation detail, 32 is not allocated to a cold size class.
+      {32, 0, tcmalloc::hot_cold_t{0}, true, true},
+      {64, 0, tcmalloc::hot_cold_t{255}, true, true},
+      {8192, 0, tcmalloc::hot_cold_t{0}, false, true},
+  };
   std::set<size_t> sizes_expected;
   for (auto s : sizes) {
     sizes_expected.insert(s.size);
@@ -127,18 +148,22 @@ TEST(AllocationSampleTest, SampleAccuracy) {
 
   // We use new/delete to allocate memory, as malloc returns objects aligned to
   // std::max_align_t.
-  for (auto s : sizes) {
+  for (auto& s : sizes) {
     for (size_t bytes = 0; bytes < kTotalPerSize; bytes += s.size) {
-      void *obj;
+      void* obj;
       if (s.alignment > 0) {
         obj = operator new(s.size, static_cast<std::align_val_t>(s.alignment));
+      } else if (s.hot_cold.has_value()) {
+        obj = operator new(s.size, *s.hot_cold);
       } else {
         obj = operator new(s.size);
       }
       if (s.keep) {
-        tcmalloc::SLL_Push(&list, obj);
+        tcmalloc_internal::SLL_Push(&s.list, obj);
+      } else if (s.alignment > 0) {
+        operator delete(obj, static_cast<std::align_val_t>(s.alignment));
       } else {
-        operator delete(obj);
+        sized_delete(obj, s.size);
       }
     }
   }
@@ -150,42 +175,71 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   // size -> alignment request
   absl::flat_hash_map<size_t, size_t> alignment;
 
+  // size -> access_hint
+  absl::flat_hash_map<size_t, hot_cold_t> access_hint;
+
+  // size -> access_allocated
+  absl::flat_hash_map<size_t, Profile::Sample::Access> access_allocated;
+
   for (auto s : sizes) {
     alignment[s.size] = s.alignment;
+    access_hint[s.size] = s.hot_cold.value_or(hot_cold_t{255});
+    access_allocated[s.size] = s.expected_hot ? Profile::Sample::Access::Hot
+                                              : Profile::Sample::Access::Cold;
   }
 
-  profile.Iterate([&](const tcmalloc::Profile::Sample &e) {
+  profile.Iterate([&](const tcmalloc::Profile::Sample& e) {
+    // Skip unexpected sizes.  They may have been triggered by a background
+    // thread.
+    if (sizes_expected.find(e.allocated_size) == sizes_expected.end()) {
+      return;
+    }
+
+    SCOPED_TRACE(e.requested_size);
+
     // Don't check stack traces until we have evidence that's broken, it's
     // tedious and done fairly well elsewhere.
     m[e.allocated_size] += e.sum;
     EXPECT_EQ(alignment[e.requested_size], e.requested_alignment);
+    EXPECT_EQ(access_hint[e.requested_size], e.access_hint);
+    EXPECT_EQ(access_allocated[e.requested_size], e.access_allocated);
   });
 
+#if !defined(UNDEFINED_BEHAVIOR_SANITIZER)
+  // UBSan does not implement our profiling API, but running the test can
+  // validate the correctness of the new/delete pairs.
   size_t max_bytes = 0, min_bytes = std::numeric_limits<size_t>::max();
   EXPECT_EQ(m.size(), sizes_expected.size());
   for (auto seen : m) {
-    size_t size = seen.first;
-    EXPECT_TRUE(sizes_expected.find(size) != sizes_expected.end()) << size;
     size_t bytes = seen.second;
     min_bytes = std::min(min_bytes, bytes);
     max_bytes = std::max(max_bytes, bytes);
   }
   // Hopefully we're in a fairly small range, that contains our actual
   // allocation.
-  // TODO(b/134690164): better statistical tests here.
   EXPECT_GE((min_bytes * 3) / 2, max_bytes);
   EXPECT_LE((min_bytes * 3) / 4, kTotalPerSize);
   EXPECT_LE(kTotalPerSize, (max_bytes * 4) / 3);
+#endif
+
   // Remove the objects we left alive
-  while (list != nullptr) {
-    void *obj = tcmalloc::SLL_Pop(&list);
-    operator delete(obj);
+  for (auto& s : sizes) {
+    while (s.list != nullptr) {
+      void* obj = tcmalloc_internal::SLL_Pop(&s.list);
+      if (s.alignment > 0) {
+        operator delete(obj, static_cast<std::align_val_t>(s.alignment));
+      } else {
+        operator delete(obj);
+      }
+    }
   }
 }
 
 TEST(FragmentationzTest, Accuracy) {
+  // Increase sampling rate to decrease flakiness.
+  ScopedProfileSamplingRate ps(512 * 1024);
   // Disable GWP-ASan, since it allocates different sizes than normal samples.
-  MallocExtension::SetGuardedSamplingRate(-1);
+  ScopedGuardedSamplingRate gs(-1);
 
   // a fairly odd allocation size - will be rounded to 128.  This lets
   // us find our record in the table.
@@ -206,7 +260,7 @@ TEST(FragmentationzTest, Accuracy) {
     // doesn't come with a have a "free()" deleter; use ::operator new insted.
     (i % 5 == 0 ? keep : drop)
         .push_back(std::unique_ptr<char[]>(
-            static_cast<char *>(::operator new[](kItemSize))));
+            static_cast<char*>(::operator new[](kItemSize))));
   }
   drop.resize(0);
 
@@ -221,7 +275,7 @@ TEST(FragmentationzTest, Accuracy) {
   size_t allocated_size = 0;
   size_t sum = 0;
   size_t count = 0;
-  profile.Iterate([&](const Profile::Sample &e) {
+  profile.Iterate([&](const Profile::Sample& e) {
     if (e.requested_size != kItemSize) return;
 
     if (requested_size == 0) {
@@ -244,8 +298,7 @@ TEST(FragmentationzTest, Accuracy) {
   double frag_bytes = sum;
   double real_frag_bytes =
       static_cast<double>(allocated_size * kNumItems) * 0.8;
-  // We should be pretty close with this much data:
-  // TODO(b/134690164): this is still slightly flaky (<1%) - why?
+  // We should be pretty close with this much data.
   EXPECT_NEAR(real_frag_bytes, frag_bytes, real_frag_bytes * 0.15)
       << " sum = " << sum << " allocated = " << allocated_size
       << " requested = " << requested_size << " count = " << count;

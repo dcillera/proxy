@@ -20,7 +20,6 @@ toolchain, see `swift.bzl`.
 """
 
 load("@bazel_skylib//lib:dicts.bzl", "dicts")
-load("@bazel_skylib//lib:partial.bzl", "partial")
 load("@bazel_tools//tools/cpp:toolchain_utils.bzl", "find_cpp_toolchain")
 load(":actions.bzl", "swift_action_names")
 load(":attrs.bzl", "swift_toolchain_driver_attrs")
@@ -34,7 +33,12 @@ load(
     "SWIFT_FEATURE_USE_RESPONSE_FILES",
 )
 load(":features.bzl", "features_for_build_modes")
-load(":providers.bzl", "SwiftToolchainInfo")
+load(
+    ":providers.bzl",
+    "SwiftFeatureAllowlistInfo",
+    "SwiftPackageConfigurationInfo",
+    "SwiftToolchainInfo",
+)
 load(":toolchain_config.bzl", "swift_toolchain_config")
 load(
     ":utils.bzl",
@@ -62,22 +66,24 @@ def _all_tool_configs(
     """
     _swift_driver_tool_config = swift_toolchain_config.driver_tool_config
 
+    tool_inputs = depset(additional_tools)
+
     compile_tool_config = _swift_driver_tool_config(
         driver_mode = "swiftc",
         swift_executable = swift_executable,
+        tool_inputs = tool_inputs,
         toolchain_root = toolchain_root,
         use_param_file = use_param_file,
         worker_mode = "persistent",
-        additional_tools = additional_tools,
     )
 
     return {
         swift_action_names.AUTOLINK_EXTRACT: _swift_driver_tool_config(
             driver_mode = "swift-autolink-extract",
             swift_executable = swift_executable,
+            tool_inputs = tool_inputs,
             toolchain_root = toolchain_root,
             worker_mode = "wrap",
-            additional_tools = additional_tools,
         ),
         swift_action_names.COMPILE: compile_tool_config,
         swift_action_names.DERIVE_FILES: compile_tool_config,
@@ -86,10 +92,11 @@ def _all_tool_configs(
             args = ["-modulewrap"],
             driver_mode = "swift",
             swift_executable = swift_executable,
+            tool_inputs = tool_inputs,
             toolchain_root = toolchain_root,
             worker_mode = "wrap",
-            additional_tools = additional_tools,
         ),
+        swift_action_names.DUMP_AST: compile_tool_config,
     }
 
 def _all_action_configs(additional_swiftc_copts):
@@ -110,36 +117,29 @@ def _all_action_configs(additional_swiftc_copts):
         autolink_extract_action_configs()
     )
 
-def _default_linker_opts(
-        cc_toolchain,
+def _swift_linkopts_cc_info(
         cpu,
         os,
-        toolchain_root,
-        is_static,
-        is_test):
-    """Returns options that should be passed by default to `clang` when linking.
+        toolchain_label,
+        toolchain_root):
+    """Returns a `CcInfo` containing flags that should be passed to the linker.
 
-    This function is wrapped in a `partial` that will be propagated as part of
-    the toolchain provider. The first three arguments are pre-bound; the
-    `is_static` and `is_test` arguments are expected to be passed by the caller.
+    The provider returned by this function will be used as an implicit
+    dependency of the toolchain to ensure that any binary containing Swift code
+    will link to the standard libraries correctly.
 
     Args:
-        cc_toolchain: The cpp toolchain from which the `ld` executable is
-            determined.
         cpu: The CPU architecture, which is used as part of the library path.
         os: The operating system name, which is used as part of the library
             path.
+        toolchain_label: The label of the Swift toolchain that will act as the
+            owner of the linker input propagating the flags.
         toolchain_root: The toolchain's root directory.
-        is_static: `True` to link against the static version of the Swift
-            runtime, or `False` to link against dynamic/shared libraries.
-        is_test: `True` if the target being linked is a test target.
 
     Returns:
-        The command line options to pass to `clang` to link against the desired
-        variant of the Swift runtime libraries.
+        A `CcInfo` provider that will provide linker flags to binaries that
+        depend on Swift targets.
     """
-
-    _ignore = is_test
 
     # TODO(#8): Support statically linking the Swift runtime.
     platform_lib_dir = "{toolchain_root}/lib/swift/{os}".format(
@@ -161,22 +161,28 @@ def _default_linker_opts(
         "-lrt",
         "-ldl",
         runtime_object_path,
+        "-static-libgcc",
     ]
 
-    if is_static:
-        linkopts.append("-static-libgcc")
-
-    return linkopts
+    return CcInfo(
+        linking_context = cc_common.create_linking_context(
+            linker_inputs = depset([
+                cc_common.create_linker_input(
+                    owner = toolchain_label,
+                    user_link_flags = depset(linkopts),
+                ),
+            ]),
+        ),
+    )
 
 def _swift_toolchain_impl(ctx):
     toolchain_root = ctx.attr.root
     cc_toolchain = find_cpp_toolchain(ctx)
 
-    linker_opts_producer = partial.make(
-        _default_linker_opts,
-        cc_toolchain,
+    swift_linkopts_cc_info = _swift_linkopts_cc_info(
         ctx.attr.arch,
         ctx.attr.os,
+        ctx.label,
         toolchain_root,
     )
 
@@ -192,10 +198,7 @@ def _swift_toolchain_impl(ctx):
     # Swift.org toolchains assume everything is just available on the PATH so we
     # we don't pass any files unless we have a custom driver executable in the
     # workspace.
-    all_files = []
     swift_executable = get_swift_executable_for_toolchain(ctx)
-    if swift_executable:
-        all_files.append(swift_executable)
 
     all_tool_configs = _all_tool_configs(
         swift_executable = swift_executable,
@@ -213,23 +216,29 @@ def _swift_toolchain_impl(ctx):
     return [
         SwiftToolchainInfo(
             action_configs = all_action_configs,
-            all_files = depset(all_files),
             cc_toolchain_info = cc_toolchain,
-            cpu = ctx.attr.arch,
+            clang_implicit_deps_providers = (
+                collect_implicit_deps_providers([])
+            ),
+            feature_allowlists = [
+                target[SwiftFeatureAllowlistInfo]
+                for target in ctx.attr.feature_allowlists
+            ],
             generated_header_module_implicit_deps_providers = (
                 collect_implicit_deps_providers([])
             ),
-            implicit_deps_providers = (
-                collect_implicit_deps_providers([])
+            implicit_deps_providers = collect_implicit_deps_providers(
+                [],
+                additional_cc_infos = [swift_linkopts_cc_info],
             ),
-            linker_opts_producer = linker_opts_producer,
             linker_supports_filelist = False,
-            object_format = "elf",
+            package_configurations = [
+                target[SwiftPackageConfigurationInfo]
+                for target in ctx.attr.package_configurations
+            ],
             requested_features = requested_features,
             root_dir = toolchain_root,
-            supports_objc_interop = False,
             swift_worker = ctx.executable._worker,
-            system_name = ctx.attr.os,
             test_configuration = struct(
                 env = {},
                 execution_requirements = {},
@@ -254,6 +263,13 @@ architecture-specific content, such as "x86_64" in "lib/swift/linux/x86_64".
 """,
                 mandatory = True,
             ),
+            "feature_allowlists": attr.label_list(
+                doc = """\
+A list of `swift_feature_allowlist` targets that allow or prohibit packages from
+requesting or disabling features.
+""",
+                providers = [[SwiftFeatureAllowlistInfo]],
+            ),
             "os": attr.string(
                 doc = """\
 The name of the operating system that this toolchain targets.
@@ -262,6 +278,13 @@ This name should match the name used in the toolchain's directory layout for
 platform-specific content, such as "linux" in "lib/swift/linux".
 """,
                 mandatory = True,
+            ),
+            "package_configurations": attr.label_list(
+                doc = """\
+A list of `swift_package_configuration` targets that specify additional compiler
+configuration options that are applied to targets on a per-package basis.
+""",
+                providers = [[SwiftPackageConfigurationInfo]],
             ),
             "root": attr.string(
                 mandatory = True,
@@ -278,7 +301,7 @@ The C++ toolchain from which other tools needed by the Swift toolchain (such as
 """,
             ),
             "_worker": attr.label(
-                cfg = "host",
+                cfg = "exec",
                 allow_files = True,
                 default = Label("//tools/worker"),
                 doc = """\

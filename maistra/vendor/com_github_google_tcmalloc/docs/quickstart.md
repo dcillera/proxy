@@ -13,8 +13,8 @@ starting development using TCMalloc at least run through this quick tutorial.
 
 Running the code within this tutorial requires:
 
-*   A compatible platform (E.g. Linux). Consult the [Platforms Guide](platforms.md)
-    for more information.
+*   A compatible platform (E.g. Linux). Consult the
+    [Platforms Guide](platforms.md) for more information.
 *   A compatible C++ compiler *supporting at least C++17*. Most major compilers
     are supported.
 *   [Git](https://git-scm.com/) for interacting with the Abseil source code
@@ -23,7 +23,8 @@ Running the code within this tutorial requires:
     guide on GitHub.
 
 Although you are free to use your own build system, most of the documentation
-within this guide will assume you are using [Bazel](https://bazel.build/).
+within this guide will assume you are using [Bazel](https://bazel.build/),
+version 4.0 or newer.
 
 To download and install Bazel (and any of its dependencies), consult the
 [Bazel Installation Guide](https://docs.bazel.build/versions/master/install.html).
@@ -44,8 +45,8 @@ Resolving deltas: 100% (1083/1083), done.
 $
 ```
 
-Git will create the repository within a directory named `tcmalloc`.
-Navigate into this directory and run all tests:
+Git will create the repository within a directory named `tcmalloc`. Navigate
+into this directory and run all tests:
 
 ```
 $ cd tcmalloc
@@ -70,7 +71,7 @@ how TCMalloc works.
 First, build the `tcmalloc/testing:hello_main` target:
 
 ```
-tcmalloc$ <b>bazel build tcmalloc/testing:hello_main</b>
+tcmalloc$ bazel build tcmalloc/testing:hello_main
 Extracting Bazel installation...
 Starting local Bazel server and connecting to it...
 INFO: Analyzed target //tcmalloc/testing:hello_main (31 packages loaded ...
@@ -83,7 +84,7 @@ tcmalloc$
 Now, run the compiled program:
 
 ```
-tcmalloc$ <b>bazel run tcmalloc/testing:hello_main</b>
+tcmalloc$ bazel run tcmalloc/testing:hello_main
 ...
 INFO: Found 1 target...
 ...
@@ -135,6 +136,7 @@ local_repository(
   path = "/PATH_TO_SOURCE/Source/tcmalloc",
 )
 ```
+
 The "name" in the `WORKSPACE` file identifies the name you will use in Bazel
 `BUILD` files to refer to the linked repository (in this case
 "com_google_tcmalloc").
@@ -254,12 +256,12 @@ Congratulations! You've created your first binary using TCMalloc.
 
 ## What's Next
 
-* Read our [overview](overview.md), if you haven't already. The overview covers
-  memory allocation concepts and best practices for using TCMalloc.
-* Read through the TCMalloc [reference](reference.md) for information on the
-  behavior of `malloc()`, `::operator new`, and other allocation/deallocation
-  routines in TCMalloc.
-* Consult the TCMalloc C++ `malloc_extension.h` header file, which contains
-  information on TCMalloc's supported extensions.
-* Read our [contribution guidelines](https://github.com/google/tcmalloc/blob/master/CONTRIBUTING.md), if you
-  intend to submit code to our repository.
+*   Read our [overview](overview.md), if you haven't already. The overview
+    covers memory allocation concepts and best practices for using TCMalloc.
+*   Read through the TCMalloc [reference](reference.md) for information on the
+    behavior of `malloc()`, `::operator new`, and other allocation/deallocation
+    routines in TCMalloc.
+*   Consult the TCMalloc C++ `malloc_extension.h` header file, which contains
+    information on TCMalloc's supported extensions.
+*   Read our [contribution guidelines](../CONTRIBUTING.md), if you intend to
+    submit code to our repository.

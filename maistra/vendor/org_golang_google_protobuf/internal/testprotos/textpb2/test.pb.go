@@ -11,7 +11,6 @@ package textpb2
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoiface "google.golang.org/protobuf/runtime/protoiface"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
@@ -994,15 +993,6 @@ func (*Extensions) Descriptor() ([]byte, []int) {
 	return file_internal_testprotos_textpb2_test_proto_rawDescGZIP(), []int{10}
 }
 
-var extRange_Extensions = []protoiface.ExtensionRangeV1{
-	{Start: 20, End: 100},
-}
-
-// Deprecated: Use Extensions.ProtoReflect.Descriptor.ExtensionRanges instead.
-func (*Extensions) ExtensionRangeArray() []protoiface.ExtensionRangeV1 {
-	return extRange_Extensions
-}
-
 func (x *Extensions) GetOptString() string {
 	if x != nil && x.OptString != nil {
 		return *x.OptString
@@ -1101,15 +1091,6 @@ func (*MessageSet) Descriptor() ([]byte, []int) {
 	return file_internal_testprotos_textpb2_test_proto_rawDescGZIP(), []int{12}
 }
 
-var extRange_MessageSet = []protoiface.ExtensionRangeV1{
-	{Start: 4, End: 2147483646},
-}
-
-// Deprecated: Use MessageSet.ProtoReflect.Descriptor.ExtensionRanges instead.
-func (*MessageSet) ExtensionRangeArray() []protoiface.ExtensionRangeV1 {
-	return extRange_MessageSet
-}
-
 type MessageSetExtension struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -1194,15 +1175,6 @@ func (x *FakeMessageSet) ProtoReflect() protoreflect.Message {
 // Deprecated: Use FakeMessageSet.ProtoReflect.Descriptor instead.
 func (*FakeMessageSet) Descriptor() ([]byte, []int) {
 	return file_internal_testprotos_textpb2_test_proto_rawDescGZIP(), []int{14}
-}
-
-var extRange_FakeMessageSet = []protoiface.ExtensionRangeV1{
-	{Start: 4, End: 536870911},
-}
-
-// Deprecated: Use FakeMessageSet.ProtoReflect.Descriptor.ExtensionRanges instead.
-func (*FakeMessageSet) ExtensionRangeArray() []protoiface.ExtensionRangeV1 {
-	return extRange_FakeMessageSet
 }
 
 type FakeMessageSetExtension struct {
@@ -1412,7 +1384,7 @@ func (x *KnownTypes) GetOptNull() structpb.NullValue {
 	if x != nil && x.OptNull != nil {
 		return *x.OptNull
 	}
-	return structpb.NullValue_NULL_VALUE
+	return structpb.NullValue(0)
 }
 
 func (x *KnownTypes) GetOptEmpty() *emptypb.Empty {
@@ -1734,7 +1706,7 @@ var file_internal_testprotos_textpb2_test_proto_extTypes = []protoimpl.Extension
 		ExtendedType:  (*MessageSet)(nil),
 		ExtensionType: (*MessageSetExtension)(nil),
 		Field:         10,
-		Name:          "pb2.MessageSetExtension",
+		Name:          "pb2.MessageSetExtension.message_set_extension",
 		Tag:           "bytes,10,opt,name=message_set_extension",
 		Filename:      "internal/testprotos/textpb2/test.proto",
 	},

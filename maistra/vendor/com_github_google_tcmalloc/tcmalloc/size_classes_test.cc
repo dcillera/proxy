@@ -20,8 +20,25 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/size_class_info.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/tcmalloc_policy.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
+
+// Moved out of anonymous namespace so that it can be found by friend class in
+// span.h. This allows tests to access span internals so that we can
+// validate that scaling by a reciprocal correctly converts a pointer into
+// an offset within a span.
+class SpanTestPeer {
+ public:
+  static uint16_t CalcReciprocal(size_t size) {
+    return Span::CalcReciprocal(size);
+  }
+  static Span::ObjIdx TestOffsetToIdx(uintptr_t offset, size_t size,
+                                      uint16_t reciprocal) {
+    return Span::TestOffsetToIdx(offset, size, reciprocal);
+  }
+};
 
 namespace {
 
@@ -75,6 +92,49 @@ TEST_F(SizeClassesTest, SpanPages) {
   }
 }
 
+TEST_F(SizeClassesTest, ValidateSufficientBitmapCapacity) {
+  // Validate that all the objects in a span can fit into a bitmap.
+  // The cut-off for using a bitmap is kBitmapMinObjectSize, so it is
+  // theoretically possible that a span could exceed this threshold
+  // for object size and contain more than 64 objects.
+  for (int c = 1; c < kNumClasses; ++c) {
+    const size_t max_size_in_class = m_.class_to_size(c);
+    if (max_size_in_class >= kBitmapMinObjectSize) {
+      const size_t objects_per_span =
+          Length(m_.class_to_pages(c)).in_bytes() / m_.class_to_size(c);
+      // Span can hold at most 64 objects of this size.
+      EXPECT_LE(objects_per_span, 64);
+    }
+  }
+}
+
+TEST_F(SizeClassesTest, ValidateCorrectScalingByReciprocal) {
+  // Validate that multiplying by the reciprocal works for all size classes.
+  // When converting an offset within a span into an index we avoid a
+  // division operation by scaling by the reciprocal. The test ensures
+  // that this approach works for all objects in a span, for all object
+  // sizes.
+  for (int c = 1; c < kNumClasses; ++c) {
+    const size_t max_size_in_class = m_.class_to_size(c);
+    // Only test for sizes where object availability is recorded in a bitmap.
+    if (max_size_in_class < kBitmapMinObjectSize) {
+      continue;
+    }
+    size_t reciprocal = SpanTestPeer::CalcReciprocal(max_size_in_class);
+    const size_t objects_per_span =
+        Length(m_.class_to_pages(c)).in_bytes() / m_.class_to_size(c);
+    for (int index = 0; index < objects_per_span; index++) {
+      // Calculate the address of the object.
+      uintptr_t address = index * max_size_in_class;
+      // Calculate the index into the page using the reciprocal method.
+      int idx =
+          SpanTestPeer::TestOffsetToIdx(address, max_size_in_class, reciprocal);
+      // Check that the starting address back is correct.
+      ASSERT_EQ(address, idx * max_size_in_class);
+    }
+  }
+}
+
 TEST_F(SizeClassesTest, Aligned) {
   // Validate that each size class is properly aligned.
   for (int c = 1; c < kNumClasses; c++) {
@@ -92,14 +152,20 @@ TEST_F(SizeClassesTest, Distinguishable) {
   // ClassIndexMaybe provides 8 byte granularity below 1024 bytes and 128 byte
   // granularity for larger sizes, so our chosen size classes cannot be any
   // finer (otherwise they would map to the same entry in the lookup table).
-  for (int c = 1; c < kNumClasses; c++) {
-    const size_t max_size_in_class = m_.class_to_size(c);
-    if (max_size_in_class == 0) {
-      continue;
-    }
-    const int class_index = m_.SizeClass(max_size_in_class);
+  //
+  // We don't check expanded size classes which are intentionally duplicated.
+  for (int partition = 0; partition < kNumaPartitions; partition++) {
+    for (int c = (partition * kNumBaseClasses) + 1;
+         c < (partition + 1) * kNumBaseClasses; c++) {
+      const size_t max_size_in_class = m_.class_to_size(c);
+      if (max_size_in_class == 0) {
+        continue;
+      }
+      const int class_index = m_.SizeClass(
+          CppPolicy().InNumaPartition(partition), max_size_in_class);
 
-    EXPECT_EQ(c, class_index) << max_size_in_class;
+      EXPECT_EQ(c, class_index) << max_size_in_class;
+    }
   }
 }
 
@@ -123,11 +189,11 @@ TEST_F(SizeClassesTest, DoubleCheckedConsistency) {
   // Validate that every size on [0, kMaxSize] maps to a size class that is
   // neither too big nor too small.
   for (size_t size = 0; size <= kMaxSize; size++) {
-    const int sc = m_.SizeClass(size);
+    const int sc = m_.SizeClass(CppPolicy(), size);
     EXPECT_GT(sc, 0) << size;
     EXPECT_LT(sc, kNumClasses) << size;
 
-    if (sc > 1) {
+    if ((sc % kNumBaseClasses) > 1) {
       EXPECT_GT(size, m_.class_to_size(sc - 1))
           << "Allocating unnecessarily large class";
     }
@@ -148,6 +214,25 @@ TEST_F(SizeClassesTest, NumToMove) {
     }
     EXPECT_GT(m_.num_objects_to_move(c), 0) << max_size_in_class;
   }
+}
+
+TEST_F(SizeClassesTest, MaxSize) {
+  // kMaxSize should appear as one of the size classes.  As of 10/2021, we crash
+  // during SizeClass::Init anyways, but this test exists to further document
+  // that requirement.
+  bool found = false;
+
+  for (int c = 1; c < kNumClasses; c++) {
+    // For non-empty size classes, we should move at least 1 object to/from each
+    // layer of the caches.
+    const size_t max_size_in_class = m_.class_to_size(c);
+    if (max_size_in_class == kMaxSize) {
+      found = true;
+      break;
+    }
+  }
+
+  EXPECT_TRUE(found) << "Could not find " << kMaxSize;
 }
 
 class TestingSizeMap : public SizeMap {
@@ -173,7 +258,9 @@ TEST_F(RunTimeSizeClassesTest, ExpandedSizeClasses) {
   // Verify that none of the default size classes are considered expanded size
   // classes.
   for (int i = 0; i < kNumClasses; i++) {
-    EXPECT_EQ(i < m_.DefaultSizeClassesCount(), !IsExpandedSizeClass(i)) << i;
+    EXPECT_EQ(i < (m_.DefaultSizeClassesCount() * kNumaPartitions),
+              !IsExpandedSizeClass(i))
+        << i;
   }
 }
 
@@ -278,12 +365,14 @@ TEST(SizeMapTest, GetSizeClass) {
   constexpr int kTrials = 1000;
 
   SizeMap m;
-  // Before m.Init(), SizeClass should always return 0.
+  // Before m.Init(), SizeClass should always return 0 or the equivalent in a
+  // non-zero NUMA partition.
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
-    uint32_t cl;
-    if (m.GetSizeClass(size, &cl)) {
-      EXPECT_EQ(cl, 0) << size;
+    uint32_t size_class;
+    if (m.GetSizeClass(CppPolicy(), size, &size_class)) {
+      EXPECT_EQ(size_class % kNumBaseClasses, 0) << size;
+      EXPECT_LT(size_class, kExpandedClassesStart) << size;
     } else {
       // We should only fail to lookup the size class when size is outside of
       // the size classes.
@@ -296,9 +385,9 @@ TEST(SizeMapTest, GetSizeClass) {
 
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
-    uint32_t cl;
-    if (m.GetSizeClass(size, &cl)) {
-      const size_t mapped_size = m.class_to_size(cl);
+    uint32_t size_class;
+    if (m.GetSizeClass(CppPolicy(), size, &size_class)) {
+      const size_t mapped_size = m.class_to_size(size_class);
       // The size class needs to hold size.
       ASSERT_GE(mapped_size, size);
     } else {
@@ -314,13 +403,15 @@ TEST(SizeMapTest, GetSizeClassWithAlignment) {
   constexpr int kTrials = 1000;
 
   SizeMap m;
-  // Before m.Init(), SizeClass should always return 0.
+  // Before m.Init(), SizeClass should always return 0 or the equivalent in a
+  // non-zero NUMA partition.
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
     const size_t alignment = 1 << absl::Uniform(rng, 0u, kHugePageShift);
-    uint32_t cl;
-    if (m.GetSizeClass(size, alignment, &cl)) {
-      EXPECT_EQ(cl, 0) << size << " " << alignment;
+    uint32_t size_class;
+    if (m.GetSizeClass(CppPolicy().AlignAs(alignment), size, &size_class)) {
+      EXPECT_EQ(size_class % kNumBaseClasses, 0) << size << " " << alignment;
+      EXPECT_LT(size_class, kExpandedClassesStart) << size << " " << alignment;
     } else if (alignment < kPageSize) {
       // When alignment > kPageSize, we do not produce a size class.
       // TODO(b/172060547): alignment == kPageSize could fit into the size
@@ -337,9 +428,9 @@ TEST(SizeMapTest, GetSizeClassWithAlignment) {
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
     const size_t alignment = 1 << absl::Uniform(rng, 0u, kHugePageShift);
-    uint32_t cl;
-    if (m.GetSizeClass(size, alignment, &cl)) {
-      const size_t mapped_size = m.class_to_size(cl);
+    uint32_t size_class;
+    if (m.GetSizeClass(CppPolicy().AlignAs(alignment), size, &size_class)) {
+      const size_t mapped_size = m.class_to_size(size_class);
       // The size class needs to hold size.
       ASSERT_GE(mapped_size, size);
       // The size needs to be a multiple of alignment.
@@ -360,10 +451,13 @@ TEST(SizeMapTest, SizeClass) {
   constexpr int kTrials = 1000;
 
   SizeMap m;
-  // Before m.Init(), SizeClass should always return 0.
+  // Before m.Init(), SizeClass should always return 0 or the equivalent in a
+  // non-zero NUMA partition.
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform<size_t>(rng, 0u, kMaxSize);
-    EXPECT_EQ(m.SizeClass(size), 0) << size;
+    const uint32_t size_class = m.SizeClass(CppPolicy(), size);
+    EXPECT_EQ(size_class % kNumBaseClasses, 0) << size;
+    EXPECT_LT(size_class, kExpandedClassesStart) << size;
   }
 
   // After m.Init(), SizeClass should return a size class.
@@ -371,9 +465,9 @@ TEST(SizeMapTest, SizeClass) {
 
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform<size_t>(rng, 0u, kMaxSize);
-    uint32_t cl = m.SizeClass(size);
+    uint32_t size_class = m.SizeClass(CppPolicy(), size);
 
-    const size_t mapped_size = m.class_to_size(cl);
+    const size_t mapped_size = m.class_to_size(size_class);
     // The size class needs to hold size.
     ASSERT_GE(mapped_size, size);
   }
@@ -382,12 +476,13 @@ TEST(SizeMapTest, SizeClass) {
 TEST(SizeMapTest, Preinit) {
   ABSL_CONST_INIT static SizeMap m;
 
-  for (int cl = 0; cl < kNumClasses; ++cl) {
-    EXPECT_EQ(m.class_to_size(cl), 0) << cl;
-    EXPECT_EQ(m.class_to_pages(cl), 0) << cl;
-    EXPECT_EQ(m.num_objects_to_move(cl), 0) << cl;
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    EXPECT_EQ(m.class_to_size(size_class), 0) << size_class;
+    EXPECT_EQ(m.class_to_pages(size_class), 0) << size_class;
+    EXPECT_EQ(m.num_objects_to_move(size_class), 0) << size_class;
   }
 }
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

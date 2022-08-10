@@ -98,7 +98,7 @@ func TestNewFile(t *testing.T) {
 		wantErr: `path must be populated`,
 	}, {
 		label:  "empty package and syntax",
-		inDesc: mustParseFile(`name:"weird" package:""`),
+		inDesc: mustParseFile(`name:"weird"`),
 	}, {
 		label:   "invalid syntax",
 		inDesc:  mustParseFile(`name:"weird" syntax:"proto9"`),
@@ -111,7 +111,6 @@ func TestNewFile(t *testing.T) {
 		label: "unresolvable import",
 		inDesc: mustParseFile(`
 			name:       "test.proto"
-			package:    ""
 			dependency: "dep.proto"
 		`),
 		wantErr: `could not resolve import "dep.proto": not found`,
@@ -119,7 +118,6 @@ func TestNewFile(t *testing.T) {
 		label: "unresolvable import but allowed",
 		inDesc: mustParseFile(`
 			name:       "test.proto"
-			package:    ""
 			dependency: "dep.proto"
 		`),
 		inOpts: FileOptions{AllowUnresolvable: true},
@@ -127,7 +125,6 @@ func TestNewFile(t *testing.T) {
 		label: "duplicate import",
 		inDesc: mustParseFile(`
 			name:       "test.proto"
-			package:    ""
 			dependency: ["dep.proto", "dep.proto"]
 		`),
 		inOpts:  FileOptions{AllowUnresolvable: true},
@@ -136,7 +133,6 @@ func TestNewFile(t *testing.T) {
 		label: "invalid weak import",
 		inDesc: mustParseFile(`
 			name:            "test.proto"
-			package:         ""
 			dependency:      "dep.proto"
 			weak_dependency: [-23]
 		`),
@@ -146,7 +142,6 @@ func TestNewFile(t *testing.T) {
 		label: "normal weak and public import",
 		inDesc: mustParseFile(`
 			name:              "test.proto"
-			package:           ""
 			dependency:        "dep.proto"
 			weak_dependency:   [0]
 			public_dependency: [0]
@@ -160,7 +155,6 @@ func TestNewFile(t *testing.T) {
 		},
 		inDesc: mustParseFile(`
 			name: "test.proto"
-			package: ""
 			dependency: ["public.proto", "leaf.proto"]
 		`),
 	}, {
@@ -237,7 +231,6 @@ func TestNewFile(t *testing.T) {
 		label: "resolve the wrong type",
 		inDesc: mustParseFile(`
 			name: "test.proto"
-			package: ""
 			message_type: [{
 				name: "M"
 				field: [{name:"F" number:1 label:LABEL_OPTIONAL type:TYPE_MESSAGE type_name:"E"}]
@@ -249,7 +242,6 @@ func TestNewFile(t *testing.T) {
 		label: "auto-resolve unknown kind",
 		inDesc: mustParseFile(`
 			name: "test.proto"
-			package: ""
 			message_type: [{
 				name: "M"
 				field: [{name:"F" number:1 label:LABEL_OPTIONAL type_name:"E"}]
@@ -258,7 +250,6 @@ func TestNewFile(t *testing.T) {
 		`),
 		wantDesc: mustParseFile(`
 			name: "test.proto"
-			package: ""
 			message_type: [{
 				name: "M"
 				field: [{name:"F" number:1 label:LABEL_OPTIONAL type:TYPE_ENUM type_name:".M.E"}]
@@ -389,7 +380,6 @@ func TestNewFile(t *testing.T) {
 		label: "namespace conflict on enum value",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			enum_type: [{
 				name: "foo"
 				value: [{name:"foo" number:0}]
@@ -400,7 +390,6 @@ func TestNewFile(t *testing.T) {
 		label: "no namespace conflict on message field",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{
 				name: "foo"
 				field: [{name:"foo" number:1 label:LABEL_OPTIONAL type:TYPE_STRING}]
@@ -410,7 +399,6 @@ func TestNewFile(t *testing.T) {
 		label: "invalid name",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name: "$"}]
 		`),
 		wantErr: `descriptor "" has an invalid nested name: "$"`,
@@ -418,7 +406,6 @@ func TestNewFile(t *testing.T) {
 		label: "invalid empty enum",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{name:"E"}]}]
 		`),
 		wantErr: `enum "M.E" must contain at least one value declaration`,
@@ -426,7 +413,6 @@ func TestNewFile(t *testing.T) {
 		label: "invalid enum value without number",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{name:"E" value:[{name:"one"}]}]}]
 		`),
 		wantErr: `enum value "M.one" must have a specified number`,
@@ -434,14 +420,12 @@ func TestNewFile(t *testing.T) {
 		label: "valid enum",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{name:"E" value:[{name:"one" number:1}]}]}]
 		`),
 	}, {
 		label: "invalid enum reserved names",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:          "E"
 				reserved_name: [""]
@@ -455,7 +439,6 @@ func TestNewFile(t *testing.T) {
 		label: "duplicate enum reserved names",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:          "E"
 				reserved_name: ["foo", "foo"]
@@ -466,7 +449,6 @@ func TestNewFile(t *testing.T) {
 		label: "valid enum reserved names",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:          "E"
 				reserved_name: ["foo", "bar"]
@@ -477,7 +459,6 @@ func TestNewFile(t *testing.T) {
 		label: "use of enum reserved names",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:          "E"
 				reserved_name: ["foo", "bar"]
@@ -489,7 +470,6 @@ func TestNewFile(t *testing.T) {
 		label: "invalid enum reserved ranges",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:           "E"
 				reserved_range: [{start:5 end:4}]
@@ -500,7 +480,6 @@ func TestNewFile(t *testing.T) {
 		label: "overlapping enum reserved ranges",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:           "E"
 				reserved_range: [{start:1 end:1000}, {start:10 end:100}]
@@ -511,7 +490,6 @@ func TestNewFile(t *testing.T) {
 		label: "valid enum reserved names",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:           "E"
 				reserved_range: [{start:1 end:10}, {start:100 end:1000}]
@@ -522,7 +500,6 @@ func TestNewFile(t *testing.T) {
 		label: "use of enum reserved range",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:           "E"
 				reserved_range: [{start:1 end:10}, {start:100 end:1000}]
@@ -534,7 +511,6 @@ func TestNewFile(t *testing.T) {
 		label: "unused enum alias feature",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:    "E"
 				value:   [{name:"baz" number:500}]
@@ -546,7 +522,6 @@ func TestNewFile(t *testing.T) {
 		label: "enum number conflicts",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:  "E"
 				value: [{name:"foo" number:0}, {name:"bar" number:1}, {name:"baz" number:1}]
@@ -557,7 +532,6 @@ func TestNewFile(t *testing.T) {
 		label: "aliased enum numbers",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:    "E"
 				value:   [{name:"foo" number:0}, {name:"bar" number:1}, {name:"baz" number:1}]
@@ -569,7 +543,6 @@ func TestNewFile(t *testing.T) {
 		inDesc: mustParseFile(`
 			syntax:  "proto3"
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:  "E"
 				value: [{name:"baz" number:500}]
@@ -581,7 +554,6 @@ func TestNewFile(t *testing.T) {
 		inDesc: mustParseFile(`
 			syntax:  "proto3"
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:  "E"
 				value: [{name:"baz" number:0}]
@@ -592,7 +564,6 @@ func TestNewFile(t *testing.T) {
 		inDesc: mustParseFile(`
 			syntax:  "proto3"
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:  "E"
 				value: [{name:"e_Foo" number:0}, {name:"fOo" number:1}]
@@ -603,7 +574,6 @@ func TestNewFile(t *testing.T) {
 		label: "proto2 enum has name prefix check",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:  "E"
 				value: [{name:"e_Foo" number:0}, {name:"fOo" number:1}]
@@ -614,7 +584,6 @@ func TestNewFile(t *testing.T) {
 		inDesc: mustParseFile(`
 			syntax:  "proto3"
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:  "E"
 				value: [{name:"e_Foo" number:0}, {name:"fOo" number:0}]
@@ -626,7 +595,6 @@ func TestNewFile(t *testing.T) {
 		inDesc: mustParseFile(`
 			syntax:  "proto3"
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" enum_type:[{
 				name:    "E"
 				value:   [{name:"e_Foo" number:0}, {name:"fOo" number:0}]
@@ -637,7 +605,6 @@ func TestNewFile(t *testing.T) {
 		label: "invalid message reserved names",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" nested_type:[{
 				name:          "M"
 				reserved_name: ["$"]
@@ -650,7 +617,6 @@ func TestNewFile(t *testing.T) {
 		label: "valid message reserved names",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" nested_type:[{
 				name:          "M"
 				reserved_name: ["foo", "bar"]
@@ -662,7 +628,6 @@ func TestNewFile(t *testing.T) {
 		label: "valid message reserved names",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" nested_type:[{
 				name:          "M"
 				reserved_name: ["foo", "bar"]
@@ -674,7 +639,6 @@ func TestNewFile(t *testing.T) {
 		label: "invalid reserved number",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" nested_type:[{
 				name:           "M"
 				reserved_range: [{start:1 end:1}]
@@ -686,7 +650,6 @@ func TestNewFile(t *testing.T) {
 		label: "invalid reserved ranges",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" nested_type:[{
 				name:           "M"
 				reserved_range: [{start:2 end:2}]
@@ -698,7 +661,6 @@ func TestNewFile(t *testing.T) {
 		label: "overlapping reserved ranges",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" nested_type:[{
 				name:           "M"
 				reserved_range: [{start:1 end:10}, {start:2 end:9}]
@@ -710,7 +672,6 @@ func TestNewFile(t *testing.T) {
 		label: "use of reserved message field number",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" nested_type:[{
 				name:           "M"
 				reserved_range: [{start:10 end:20}, {start:20 end:30}, {start:30 end:31}]
@@ -722,7 +683,6 @@ func TestNewFile(t *testing.T) {
 		label: "invalid extension ranges",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" nested_type:[{
 				name:            "M"
 				extension_range: [{start:-500 end:2}]
@@ -734,7 +694,6 @@ func TestNewFile(t *testing.T) {
 		label: "overlapping reserved and extension ranges",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" nested_type:[{
 				name:            "M"
 				reserved_range:  [{start:15 end:20}, {start:1 end:3}, {start:7 end:10}]
@@ -746,7 +705,6 @@ func TestNewFile(t *testing.T) {
 		label: "message field conflicting number",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" nested_type:[{
 				name:            "M"
 				field: [
@@ -761,7 +719,6 @@ func TestNewFile(t *testing.T) {
 		inDesc: mustParseFile(`
 			syntax:  "proto3"
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" nested_type:[{
 				name:    "M"
 				options: {message_set_wire_format:true}
@@ -778,7 +735,6 @@ func TestNewFile(t *testing.T) {
 		label: "valid MessageSet",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" nested_type:[{
 				name:            "M"
 				extension_range: [{start:1 end:100000}]
@@ -797,7 +753,6 @@ func TestNewFile(t *testing.T) {
 		inDesc: mustParseFile(`
 			syntax:  "proto3"
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" nested_type:[{
 				name:            "M"
 				extension_range: [{start:1 end:100000}]
@@ -809,7 +764,6 @@ func TestNewFile(t *testing.T) {
 		inDesc: mustParseFile(`
 			syntax:  "proto3"
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" nested_type:[{
 				name: "M"
 				field: [
@@ -824,7 +778,6 @@ func TestNewFile(t *testing.T) {
 		inDesc: mustParseFile(`
 			syntax:  "proto3"
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" nested_type:[{
 				name:       "M"
 				field:      [{name:"_b_a_z_" number:1 label:LABEL_OPTIONAL type:TYPE_STRING oneof_index:0}]
@@ -835,7 +788,6 @@ func TestNewFile(t *testing.T) {
 		label: "proto2 message fields with no conflict",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			message_type: [{name:"M" nested_type:[{
 				name: "M"
 				field: [
@@ -848,7 +800,6 @@ func TestNewFile(t *testing.T) {
 		label: "proto3 message with unresolved enum",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			syntax:  "proto3"
 			message_type: [{
 				name: "M"
@@ -867,14 +818,12 @@ func TestNewFile(t *testing.T) {
 		label: "empty service",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			service: [{name:"service"}]
 		`),
 	}, {
 		label: "service with method with unresolved",
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			service: [{
 				name: "service"
 				method: [{
@@ -893,7 +842,6 @@ func TestNewFile(t *testing.T) {
 		},
 		inDesc: mustParseFile(`
 			name:    "test.proto"
-			package: ""
 			dependency: ["proto2_enum.proto", "proto3_message.proto"]
 			service: [{
 				name: "service"
@@ -992,5 +940,243 @@ func TestNewFilesImportCycle(t *testing.T) {
 	_, err := NewFiles(fdset)
 	if err == nil {
 		t.Fatal("NewFiles with import cycle: success, want error")
+	}
+}
+
+func TestSourceLocations(t *testing.T) {
+	fd := mustParseFile(`
+		name: "comments.proto"
+		message_type: [{
+			name: "Message1"
+			field: [
+				{name:"field1" number:1 label:LABEL_OPTIONAL type:TYPE_STRING},
+				{name:"field2" number:2 label:LABEL_OPTIONAL type:TYPE_STRING},
+				{name:"field3" number:3 label:LABEL_OPTIONAL type:TYPE_STRING oneof_index:0},
+				{name:"field4" number:4 label:LABEL_OPTIONAL type:TYPE_STRING oneof_index:0},
+				{name:"field5" number:5 label:LABEL_OPTIONAL type:TYPE_STRING oneof_index:1},
+				{name:"field6" number:6 label:LABEL_OPTIONAL type:TYPE_STRING oneof_index:1}
+			]
+			extension: [
+				{name:"extension1" number:100 label:LABEL_OPTIONAL type:TYPE_STRING extendee:".Message1"},
+				{name:"extension2" number:101 label:LABEL_OPTIONAL type:TYPE_STRING extendee:".Message1"}
+			]
+			nested_type: [{name:"Message1"}, {name:"Message2"}]
+			extension_range: {start:100 end:536870912}
+			oneof_decl: [{name:"oneof1"}, {name:"oneof2"}]
+		}, {
+			name: "Message2"
+			enum_type: {
+				name: "Enum1"
+				value: [
+					{name: "FOO", number: 0},
+					{name: "BAR", number: 1}
+				]
+			}
+		}]
+		enum_type: {
+			name: "Enum1"
+			value: [
+				{name: "FOO", number: 0},
+				{name: "BAR", number: 1}
+			]
+		}
+		service: {
+			name: "Service1"
+			method: [
+				{name:"Method1" input_type:".Message1" output_type:".Message1"},
+				{name:"Method2" input_type:".Message2" output_type:".Message2"}
+			]
+		}
+		extension: [
+			{name:"extension1" number:102 label:LABEL_OPTIONAL type:TYPE_STRING extendee:".Message1"},
+			{name:"extension2" number:103 label:LABEL_OPTIONAL type:TYPE_STRING extendee:".Message1"}
+		]
+		source_code_info: {
+			location: [
+				{span:[0,0,69,1]},
+				{path:[12] span:[0,0,18]},
+				{path:[5,0] span:[3,0,8,1] leading_comments:" Enum1\r\n"},
+				{path:[5,0,1] span:[3,5,10]},
+				{path:[5,0,2,0] span:[5,2,10] leading_comments:" FOO\r\n"},
+				{path:[5,0,2,0,1] span:[5,2,5]},
+				{path:[5,0,2,0,2] span:[5,8,9]},
+				{path:[5,0,2,1] span:[7,2,10] leading_comments:" BAR\r\n"},
+				{path:[5,0,2,1,1] span:[7,2,5]},
+				{path:[5,0,2,1,2] span:[7,8,9]},
+				{path:[4,0] span:[11,0,43,1] leading_comments:" Message1\r\n"},
+				{path:[4,0,1] span:[11,8,16]},
+				{path:[4,0,3,0] span:[13,2,21] leading_comments:" Message1.Message1\r\n"},
+				{path:[4,0,3,0,1] span:[13,10,18]},
+				{path:[4,0,3,1] span:[15,2,21] leading_comments:" Message1.Message2\r\n"},
+				{path:[4,0,3,1,1] span:[15,10,18]},
+				{path:[4,0,2,0] span:[18,2,29] leading_comments:" Message1.field1\r\n"},
+				{path:[4,0,2,0,4] span:[18,2,10]},
+				{path:[4,0,2,0,5] span:[18,11,17]},
+				{path:[4,0,2,0,1] span:[18,18,24]},
+				{path:[4,0,2,0,3] span:[18,27,28]},
+				{path:[4,0,2,1] span:[20,2,29] leading_comments:" Message1.field2\r\n"},
+				{path:[4,0,2,1,4] span:[20,2,10]},
+				{path:[4,0,2,1,5] span:[20,11,17]},
+				{path:[4,0,2,1,1] span:[20,18,24]},
+				{path:[4,0,2,1,3] span:[20,27,28]},
+				{path:[4,0,8,0] span:[22,2,27,3] leading_comments:" Message1.oneof1\r\n"},
+				{path:[4,0,8,0,1] span:[22,8,14]},
+				{path:[4,0,2,2] span:[24,4,22] leading_comments:" Message1.field3\r\n"},
+				{path:[4,0,2,2,5] span:[24,4,10]},
+				{path:[4,0,2,2,1] span:[24,11,17]},
+				{path:[4,0,2,2,3] span:[24,20,21]},
+				{path:[4,0,2,3] span:[26,4,22] leading_comments:" Message1.field4\r\n"},
+				{path:[4,0,2,3,5] span:[26,4,10]},
+				{path:[4,0,2,3,1] span:[26,11,17]},
+				{path:[4,0,2,3,3] span:[26,20,21]},
+				{path:[4,0,8,1] span:[29,2,34,3] leading_comments:" Message1.oneof2\r\n"},
+				{path:[4,0,8,1,1] span:[29,8,14]},
+				{path:[4,0,2,4] span:[31,4,22] leading_comments:" Message1.field5\r\n"},
+				{path:[4,0,2,4,5] span:[31,4,10]},
+				{path:[4,0,2,4,1] span:[31,11,17]},
+				{path:[4,0,2,4,3] span:[31,20,21]},
+				{path:[4,0,2,5] span:[33,4,22] leading_comments:" Message1.field6\r\n"},
+				{path:[4,0,2,5,5] span:[33,4,10]},
+				{path:[4,0,2,5,1] span:[33,11,17]},
+				{path:[4,0,2,5,3] span:[33,20,21]},
+				{path:[4,0,5] span:[36,2,24]},
+				{path:[4,0,5,0] span:[36,13,23]},
+				{path:[4,0,5,0,1] span:[36,13,16]},
+				{path:[4,0,5,0,2] span:[36,20,23]},
+				{path:[4,0,6] span:[37,2,42,3]},
+				{path:[4,0,6,0] span:[39,4,37] leading_comments:" Message1.extension1\r\n"},
+				{path:[4,0,6,0,2] span:[37,9,18]},
+				{path:[4,0,6,0,4] span:[39,4,12]},
+				{path:[4,0,6,0,5] span:[39,13,19]},
+				{path:[4,0,6,0,1] span:[39,20,30]},
+				{path:[4,0,6,0,3] span:[39,33,36]},
+				{path:[4,0,6,1] span:[41,4,37] leading_comments:" Message1.extension2\r\n"},
+				{path:[4,0,6,1,2] span:[37,9,18]},
+				{path:[4,0,6,1,4] span:[41,4,12]},
+				{path:[4,0,6,1,5] span:[41,13,19]},
+				{path:[4,0,6,1,1] span:[41,20,30]},
+				{path:[4,0,6,1,3] span:[41,33,36]},
+				{path:[7] span:[45,0,50,1]},
+				{path:[7,0] span:[47,2,35] leading_comments:" extension1\r\n"},
+				{path:[7,0,2] span:[45,7,15]},
+				{path:[7,0,4] span:[47,2,10]},
+				{path:[7,0,5] span:[47,11,17]},
+				{path:[7,0,1] span:[47,18,28]},
+				{path:[7,0,3] span:[47,31,34]},
+				{path:[7,1] span:[49,2,35] leading_comments:" extension2\r\n"},
+				{path:[7,1,2] span:[45,7,15]},
+				{path:[7,1,4] span:[49,2,10]},
+				{path:[7,1,5] span:[49,11,17]},
+				{path:[7,1,1] span:[49,18,28]},
+				{path:[7,1,3] span:[49,31,34]},
+				{path:[4,1] span:[53,0,61,1] leading_comments:" Message2\r\n"},
+				{path:[4,1,1] span:[53,8,16]},
+				{path:[4,1,4,0] span:[55,2,60,3] leading_comments:" Message2.Enum1\r\n"},
+				{path:[4,1,4,0,1] span:[55,7,12]},
+				{path:[4,1,4,0,2,0] span:[57,4,12] leading_comments:" Message2.FOO\r\n"},
+				{path:[4,1,4,0,2,0,1] span:[57,4,7]},
+				{path:[4,1,4,0,2,0,2] span:[57,10,11]},
+				{path:[4,1,4,0,2,1] span:[59,4,12] leading_comments:" Message2.BAR\r\n"},
+				{path:[4,1,4,0,2,1,1] span:[59,4,7]},
+				{path:[4,1,4,0,2,1,2] span:[59,10,11]},
+				{path:[6,0] span:[64,0,69,1] leading_comments:" Service1\r\n"},
+				{path:[6,0,1] span:[64,8,16]},
+				{path:[6,0,2,0] span:[66,2,43] leading_comments:" Service1.Method1\r\n"},
+				{path:[6,0,2,0,1] span:[66,6,13]},
+				{path:[6,0,2,0,2] span:[66,14,22]},
+				{path:[6,0,2,0,3] span:[66,33,41]},
+				{path:[6,0,2,1] span:[68,2,43] leading_comments:" Service1.Method2\r\n"},
+				{path:[6,0,2,1,1] span:[68,6,13]},
+				{path:[6,0,2,1,2] span:[68,14,22]},
+				{path:[6,0,2,1,3] span:[68,33,41]}
+			]
+		}
+	`)
+	fileDesc, err := NewFile(fd, nil)
+	if err != nil {
+		t.Fatalf("NewFile error: %v", err)
+	}
+
+	var walkDescs func(protoreflect.Descriptor, func(protoreflect.Descriptor))
+	walkDescs = func(d protoreflect.Descriptor, f func(protoreflect.Descriptor)) {
+		f(d)
+		if d, ok := d.(interface {
+			Enums() protoreflect.EnumDescriptors
+		}); ok {
+			eds := d.Enums()
+			for i := 0; i < eds.Len(); i++ {
+				walkDescs(eds.Get(i), f)
+			}
+		}
+		if d, ok := d.(interface {
+			Values() protoreflect.EnumValueDescriptors
+		}); ok {
+			vds := d.Values()
+			for i := 0; i < vds.Len(); i++ {
+				walkDescs(vds.Get(i), f)
+			}
+		}
+		if d, ok := d.(interface {
+			Messages() protoreflect.MessageDescriptors
+		}); ok {
+			mds := d.Messages()
+			for i := 0; i < mds.Len(); i++ {
+				walkDescs(mds.Get(i), f)
+			}
+		}
+		if d, ok := d.(interface {
+			Fields() protoreflect.FieldDescriptors
+		}); ok {
+			fds := d.Fields()
+			for i := 0; i < fds.Len(); i++ {
+				walkDescs(fds.Get(i), f)
+			}
+		}
+		if d, ok := d.(interface {
+			Oneofs() protoreflect.OneofDescriptors
+		}); ok {
+			ods := d.Oneofs()
+			for i := 0; i < ods.Len(); i++ {
+				walkDescs(ods.Get(i), f)
+			}
+		}
+		if d, ok := d.(interface {
+			Extensions() protoreflect.ExtensionDescriptors
+		}); ok {
+			xds := d.Extensions()
+			for i := 0; i < xds.Len(); i++ {
+				walkDescs(xds.Get(i), f)
+			}
+		}
+		if d, ok := d.(interface {
+			Services() protoreflect.ServiceDescriptors
+		}); ok {
+			sds := d.Services()
+			for i := 0; i < sds.Len(); i++ {
+				walkDescs(sds.Get(i), f)
+			}
+		}
+		if d, ok := d.(interface {
+			Methods() protoreflect.MethodDescriptors
+		}); ok {
+			mds := d.Methods()
+			for i := 0; i < mds.Len(); i++ {
+				walkDescs(mds.Get(i), f)
+			}
+		}
+	}
+
+	var numDescs int
+	walkDescs(fileDesc, func(d protoreflect.Descriptor) {
+		// The comment for every descriptor should be the full name itself.
+		got := strings.TrimSpace(fileDesc.SourceLocations().ByDescriptor(d).LeadingComments)
+		want := string(d.FullName())
+		if got != want {
+			t.Errorf("comment mismatch: got %v, want %v", got, want)
+		}
+		numDescs++
+	})
+	if numDescs != 30 {
+		t.Errorf("visited %d descriptor, expected 30", numDescs)
 	}
 }

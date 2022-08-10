@@ -25,7 +25,9 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 //-------------------------------------------------------------------
 // Sampler to decide when to create a sample trace for an allocation
@@ -230,8 +232,7 @@ Sampler::TryRecordAllocationFast(size_t k) {
     // is no need to keep previous value of bytes_until_sample_ in
     // register. This helps compiler generate slightly more efficient
     // sub <reg>, <mem> instruction for subtraction above.
-    volatile ssize_t *ptr =
-        const_cast<volatile ssize_t *>(&bytes_until_sample_);
+    volatile ssize_t* ptr = const_cast<volatile ssize_t*>(&bytes_until_sample_);
     *ptr += k;
     return false;
   }
@@ -287,8 +288,10 @@ inline void Sampler::UpdateFastPathState() {
 // period hasn't changed since the allocation(s) were made.
 //
 // If unsample is false, the caller will handle unsampling.
-double AllocatedBytes(const StackTrace &stack, bool unsample);
+double AllocatedBytes(const StackTrace& stack, bool unsample);
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_SAMPLER_H_

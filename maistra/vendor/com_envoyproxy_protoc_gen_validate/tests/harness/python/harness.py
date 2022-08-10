@@ -16,6 +16,7 @@ from tests.harness.cases.strings_pb2 import *
 from tests.harness.cases.maps_pb2 import *
 from tests.harness.cases.wkt_any_pb2 import *
 from tests.harness.cases.wkt_duration_pb2 import *
+from tests.harness.cases.wkt_nested_pb2 import *
 from tests.harness.cases.wkt_wrappers_pb2 import *
 from tests.harness.cases.wkt_timestamp_pb2 import *
 from tests.harness.cases.kitchen_sink_pb2 import *
@@ -43,7 +44,7 @@ if __name__ == "__main__":
         result.Valid = True
     except ValidationFailed as e:
         result.Valid = False
-        result.Reason = repr(e)
+        result.Reasons[:] = [repr(e)]
 
     sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf8')
     sys.stdout.write(result.SerializeToString().decode("utf-8"))

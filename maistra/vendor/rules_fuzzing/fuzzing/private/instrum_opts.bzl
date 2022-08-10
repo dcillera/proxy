@@ -80,6 +80,15 @@ instrum_defaults = struct(
     libfuzzer = _make_opts(
         copts = ["-fsanitize=fuzzer-no-link"],
     ),
+    # Jazzer is based on libFuzzer and hence generally requires the same
+    # instrumentation for native code. Since it does not support
+    # LeakSanitizer, the corresponding instrumentation can be disabled.
+    jazzer = _make_opts(
+        copts = [
+            "-fsanitize=fuzzer-no-link",
+            "-fno-sanitize=leak",
+        ],
+    ),
     # Reflects the set of options at
     # https://github.com/google/honggfuzz/blob/master/hfuzz_cc/hfuzz-cc.c
     honggfuzz = _make_opts(
@@ -110,5 +119,26 @@ instrum_defaults = struct(
             "-fsanitize-memory-track-origins=2",
         ],
         linkopts = ["-fsanitize=memory"],
+    ),
+    ubsan = _make_opts(
+        copts = [
+            "-fsanitize=undefined",
+            # Enable most of the checks enabled in OSS-Fuzz:
+            # https://github.com/google/oss-fuzz/blob/a896ee749769bd236299041461784f483649fe80/infra/base-images/base-builder/Dockerfile#L77
+            # The only exception is unsigned-integer-overflow, which is not UB,
+            # but enabled in OSS-Fuzz in silent mode as an additional coverage
+            # signal. We do not do this here as it would introduce additional
+            # complexity (setting UBSAN_OPTIONS) to the local mode.
+            "-fsanitize=array-bounds,bool,builtin,enum,float-divide-by-zero,function,integer-divide-by-zero,null,object-size,return,returns-nonnull-attribute,shift,signed-integer-overflow,unreachable,vla-bound,vptr",
+            "-fno-sanitize-recover=all",
+        ],
+        linkopts = [
+            "-fsanitize=undefined",
+            # Bazel uses clang, not clang++, as the linker, which does not link
+            # the C++ UBSan runtime library by default, but can be instructed to
+            # do so with a flag.
+            # https://github.com/bazelbuild/bazel/issues/11122#issuecomment-896613570
+            "-fsanitize-link-c++-runtime",
+        ],
     ),
 )

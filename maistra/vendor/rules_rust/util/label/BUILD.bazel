@@ -1,4 +1,4 @@
-load("//rust:rust.bzl", "rust_library", "rust_test")
+load("//rust:defs.bzl", "rust_library", "rust_test")
 
 rust_library(
     name = "label",
@@ -13,4 +13,14 @@ rust_library(
 rust_test(
     name = "label_test",
     crate = ":label",
+)
+
+filegroup(
+    name = "distro",
+    srcs = glob([
+        "**/*.rs",
+    ]) + [
+        "BUILD.bazel",
+    ],
+    visibility = ["//:__subpackages__"],
 )

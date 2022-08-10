@@ -21,19 +21,24 @@
 #include <cstddef>
 #include <new>
 
-#include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/memory/memory.h"
+#include "absl/numeric/bits.h"
+#include "benchmark/benchmark.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_page_allocator.h"
-#include "tcmalloc/internal/bits.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace {
+
+using tcmalloc_internal::kPageShift;
+using tcmalloc_internal::kPageSize;
+using tcmalloc_internal::Static;
 
 class GuardedAllocAlignmentTest : public testing::Test {
  protected:
@@ -41,7 +46,8 @@ class GuardedAllocAlignmentTest : public testing::Test {
     profile_sampling_rate_ = MallocExtension::GetProfileSamplingRate();
     guarded_sample_rate_ = MallocExtension::GetGuardedSamplingRate();
     MallocExtension::SetProfileSamplingRate(1);  // Always do heapz samples.
-    MallocExtension::SetGuardedSamplingRate(0);  // Guard every heapz sample.
+    MallocExtension::SetGuardedSamplingRate(
+        0);  // TODO(b/201336703): Guard every heapz sample.
     MallocExtension::ActivateGuardedSampling();
 
     // Eat up unsampled bytes remaining to flush the new sample rates.
@@ -106,9 +112,10 @@ TEST_F(GuardedAllocAlignmentTest, New) {
       // for operator new is never larger than the size rounded up to the next
       // power of 2.  GuardedPageAllocator uses this fact to minimize alignment
       // padding between the end of small allocations and their guard pages.
-      int lg_size = std::max<int>(
-          tcmalloc::tcmalloc_internal::Bits::Log2Ceiling(size), 0);
-      size_t expected_align = std::min(size_t{1} << lg_size, kAlignment);
+      size_t expected_align = std::min(
+          absl::bit_ceil(size),
+          std::max(tcmalloc_internal::kAlignment,
+                   static_cast<size_t>(__STDCPP_DEFAULT_NEW_ALIGNMENT__)));
 
       EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % expected_align, 0);
       ::operator delete(p);
@@ -256,6 +263,35 @@ TEST_F(TcMallocTest, NonGwpAsanSegv) {
       mmap(nullptr, kPageSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
   EXPECT_DEATH((*p)++, "");
   munmap(p, kPageSize);
+}
+
+// Verify memory is aligned suitably according to compiler assumptions
+// (b/201199449).
+TEST_F(TcMallocTest, b201199449_AlignedObjectConstruction) {
+  ScopedProfileSamplingRate s(1);  // Always do heap samples
+  ScopedGuardedSamplingRate g(0);  // TODO(b/201336703): Guard every sample
+
+  struct A {
+    char c[__STDCPP_DEFAULT_NEW_ALIGNMENT__ + 1];
+  };
+
+  bool allocated = false;
+  for (int i = 0; i < 1000; i++) {
+    auto a = std::make_unique<A>();
+    benchmark::DoNotOptimize(a.get());
+
+    // Verify alignment
+    EXPECT_EQ(
+        absl::bit_cast<uintptr_t>(a.get()) % __STDCPP_DEFAULT_NEW_ALIGNMENT__,
+        0);
+
+    if (tcmalloc::Static::guardedpage_allocator().PointerIsMine(a.get())) {
+      allocated = true;
+      break;
+    }
+  }
+
+  EXPECT_TRUE(allocated) << "Failed to allocate with GWP-ASan";
 }
 
 }  // namespace

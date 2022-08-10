@@ -55,6 +55,7 @@ func TestFiles(t *testing.T) {
 		testFindPath struct {
 			inPath    string
 			wantFiles []file
+			wantErr   string
 		}
 	)
 
@@ -103,7 +104,8 @@ func TestFiles(t *testing.T) {
 		}},
 
 		findPaths: []testFindPath{{
-			inPath: "nothing",
+			inPath:  "nothing",
+			wantErr: "not found",
 		}, {
 			inPath: "weird",
 			wantFiles: []file{
@@ -315,8 +317,12 @@ func TestFiles(t *testing.T) {
 
 			for _, tc := range tt.findPaths {
 				var gotFiles []file
-				if fd, err := files.FindFileByPath(tc.inPath); err == nil {
+				fd, gotErr := files.FindFileByPath(tc.inPath)
+				if gotErr == nil {
 					gotFiles = append(gotFiles, file{fd.Path(), fd.Package()})
+				}
+				if ((gotErr == nil) != (tc.wantErr == "")) || !strings.Contains(fmt.Sprint(gotErr), tc.wantErr) {
+					t.Errorf("FindFileByPath(%v) = %v, want %v", tc.inPath, gotErr, tc.wantErr)
 				}
 				if diff := cmp.Diff(tc.wantFiles, gotFiles, sortFiles); diff != "" {
 					t.Errorf("FindFileByPath(%v) mismatch (-want +got):\n%v", tc.inPath, diff)

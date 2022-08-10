@@ -6,6 +6,7 @@ go_library(
         "methods.go",
         "proto.go",
         "source.go",
+        "source_gen.go",
         "type.go",
         "value.go",
         "value_union.go",
@@ -29,6 +30,7 @@ go_test(
     name = "protoreflect_test",
     srcs = [
         "proto_test.go",
+        "source_test.go",
         "value_test.go",
     ],
     embed = [":protoreflect"],

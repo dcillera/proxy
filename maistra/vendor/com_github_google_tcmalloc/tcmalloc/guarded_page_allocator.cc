@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <csignal>
 #include <tuple>
@@ -29,9 +30,9 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/debugging/stacktrace.h"
+#include "absl/numeric/bits.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/internal/bits.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
@@ -40,7 +41,9 @@
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/system-alloc.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 const size_t GuardedPageAllocator::kMagicSize;  // NOLINT
 
@@ -65,22 +68,22 @@ void GuardedPageAllocator::Destroy() {
   absl::base_internal::SpinLockHolder h(&guarded_page_lock);
   if (initialized_) {
     size_t len = pages_end_addr_ - pages_base_addr_;
-    int err = munmap(reinterpret_cast<void *>(pages_base_addr_), len);
+    int err = munmap(reinterpret_cast<void*>(pages_base_addr_), len);
     ASSERT(err != -1);
     (void)err;
     initialized_ = false;
   }
 }
 
-void *GuardedPageAllocator::Allocate(size_t size, size_t alignment) {
+void* GuardedPageAllocator::Allocate(size_t size, size_t alignment) {
   if (size == 0) return nullptr;
   ssize_t free_slot = ReserveFreeSlot();
   if (free_slot == -1) return nullptr;  // All slots are reserved.
 
   ASSERT(size <= page_size_);
   ASSERT(alignment <= page_size_);
-  ASSERT(tcmalloc_internal::Bits::IsZeroOrPow2(alignment));
-  void *result = reinterpret_cast<void *>(SlotToAddr(free_slot));
+  ASSERT(alignment == 0 || absl::has_single_bit(alignment));
+  void* result = reinterpret_cast<void*>(SlotToAddr(free_slot));
   if (mprotect(result, page_size_, PROT_READ | PROT_WRITE) == -1) {
     ASSERT(false && "mprotect failed");
     absl::base_internal::SpinLockHolder h(&guarded_page_lock);
@@ -93,7 +96,7 @@ void *GuardedPageAllocator::Allocate(size_t size, size_t alignment) {
   MaybeRightAlign(free_slot, size, alignment, &result);
 
   // Record stack trace.
-  SlotMetadata &d = data_[free_slot];
+  SlotMetadata& d = data_[free_slot];
   d.dealloc_trace.depth = 0;
   d.alloc_trace.depth = absl::GetStackTrace(d.alloc_trace.stack, kMaxStackDepth,
                                             /*skip_count=*/3);
@@ -105,7 +108,7 @@ void *GuardedPageAllocator::Allocate(size_t size, size_t alignment) {
   return result;
 }
 
-void GuardedPageAllocator::Deallocate(void *ptr) {
+void GuardedPageAllocator::Deallocate(void* ptr) {
   ASSERT(PointerIsMine(ptr));
   const uintptr_t page_addr = GetPageAddr(reinterpret_cast<uintptr_t>(ptr));
   size_t slot = AddrToSlot(page_addr);
@@ -117,16 +120,16 @@ void GuardedPageAllocator::Deallocate(void *ptr) {
     write_overflow_detected_ = true;
   }
 
-  CHECK_CONDITION(mprotect(reinterpret_cast<void *>(page_addr), page_size_,
+  CHECK_CONDITION(mprotect(reinterpret_cast<void*>(page_addr), page_size_,
                            PROT_NONE) != -1);
 
   if (write_overflow_detected_ || double_free_detected_) {
-    *reinterpret_cast<char *>(ptr) = 'X';  // Trigger SEGV handler.
-    CHECK_CONDITION(false);                // Unreachable.
+    *reinterpret_cast<char*>(ptr) = 'X';  // Trigger SEGV handler.
+    CHECK_CONDITION(false);               // Unreachable.
   }
 
   // Record stack trace.
-  GpaStackTrace &trace = data_[slot].dealloc_trace;
+  GpaStackTrace& trace = data_[slot].dealloc_trace;
   trace.depth = absl::GetStackTrace(trace.stack, kMaxStackDepth,
                                     /*skip_count=*/2);
   trace.tid = absl::base_internal::GetTID();
@@ -134,14 +137,14 @@ void GuardedPageAllocator::Deallocate(void *ptr) {
   FreeSlot(slot);
 }
 
-size_t GuardedPageAllocator::GetRequestedSize(const void *ptr) const {
+size_t GuardedPageAllocator::GetRequestedSize(const void* ptr) const {
   ASSERT(PointerIsMine(ptr));
   size_t slot = AddrToSlot(GetPageAddr(reinterpret_cast<uintptr_t>(ptr)));
   return data_[slot].requested_size;
 }
 
 std::pair<off_t, size_t> GuardedPageAllocator::GetAllocationOffsetAndSize(
-    const void *ptr) const {
+    const void* ptr) const {
   ASSERT(PointerIsMine(ptr));
   const uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
   const size_t slot = GetNearestSlot(addr);
@@ -149,8 +152,8 @@ std::pair<off_t, size_t> GuardedPageAllocator::GetAllocationOffsetAndSize(
 }
 
 GuardedPageAllocator::ErrorType GuardedPageAllocator::GetStackTraces(
-    const void *ptr, GpaStackTrace *alloc_trace,
-    GpaStackTrace *dealloc_trace) const {
+    const void* ptr, GpaStackTrace* alloc_trace,
+    GpaStackTrace* dealloc_trace) const {
   ASSERT(PointerIsMine(ptr));
   const uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
   size_t slot = GetNearestSlot(addr);
@@ -172,7 +175,7 @@ static int GetChainedRate() {
   }
 }
 
-void GuardedPageAllocator::Print(TCMalloc_Printer *out) {
+void GuardedPageAllocator::Print(Printer* out) {
   absl::base_internal::SpinLockHolder h(&guarded_page_lock);
   out->printf(
       "\n"
@@ -191,7 +194,7 @@ void GuardedPageAllocator::Print(TCMalloc_Printer *out) {
       max_alloced_pages_, GetChainedRate());
 }
 
-void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion *gwp_asan) const {
+void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) const {
   absl::base_internal::SpinLockHolder h(&guarded_page_lock);
   gwp_asan->PrintI64("successful_allocations",
                      num_allocation_requests_ - num_failed_allocations_);
@@ -217,7 +220,7 @@ void GuardedPageAllocator::MapPages() {
   if (!base_addr) return;
 
   // Tell TCMalloc's PageMap about the memory we own.
-  const PageId page = PageIdContaining(reinterpret_cast<void *>(base_addr));
+  const PageId page = PageIdContaining(reinterpret_cast<void*>(base_addr));
   const Length page_len = BytesToLengthFloor(len);
   if (!Static::pagemap().Ensure(page, page_len)) {
     ASSERT(false && "Failed to notify page map of page-guarded memory.");
@@ -225,7 +228,7 @@ void GuardedPageAllocator::MapPages() {
   }
 
   // Allocate memory for slot metadata.
-  data_ = reinterpret_cast<SlotMetadata *>(
+  data_ = reinterpret_cast<SlotMetadata*>(
       Static::arena().Alloc(sizeof(*data_) * total_pages_));
   for (size_t i = 0; i < total_pages_; ++i) {
     new (&data_[i]) SlotMetadata;
@@ -317,13 +320,13 @@ bool GuardedPageAllocator::WriteOverflowOccurred(size_t slot) const {
   uintptr_t page_end = SlotToAddr(slot) + page_size_;
   uintptr_t magic_end = std::min(page_end, alloc_end + kMagicSize);
   for (uintptr_t p = alloc_end; p < magic_end; ++p) {
-    if (*reinterpret_cast<uint8_t *>(p) != magic) return true;
+    if (*reinterpret_cast<uint8_t*>(p) != magic) return true;
   }
   return false;
 }
 
 GuardedPageAllocator::ErrorType GuardedPageAllocator::GetErrorType(
-    uintptr_t addr, const SlotMetadata &d) const {
+    uintptr_t addr, const SlotMetadata& d) const {
   if (!d.allocation_start) return ErrorType::kUnknown;
   if (double_free_detected_) return ErrorType::kDoubleFree;
   if (write_overflow_detected_) return ErrorType::kBufferOverflowOnDealloc;
@@ -350,17 +353,21 @@ size_t GuardedPageAllocator::AddrToSlot(uintptr_t addr) const {
 }
 
 void GuardedPageAllocator::MaybeRightAlign(size_t slot, size_t size,
-                                           size_t alignment, void **ptr) {
+                                           size_t alignment, void** ptr) {
   if (!ShouldRightAlign(slot)) return;
   uintptr_t adjusted_ptr =
       reinterpret_cast<uintptr_t>(*ptr) + page_size_ - size;
 
   // If alignment == 0, the necessary alignment is never larger than the size
   // rounded up to the next power of 2.  We use this fact to minimize alignment
-  // padding between the end of small allocations and their guard pages.  For
-  // allocations larger than kAlignment, we're safe aligning to kAlignment.
-  size_t default_alignment = std::min(
-      size_t{1} << tcmalloc_internal::Bits::Log2Ceiling(size), kAlignment);
+  // padding between the end of small allocations and their guard pages.
+  //
+  // For allocations larger than the greater of kAlignment and
+  // __STDCPP_DEFAULT_NEW_ALIGNMENT__, we're safe aligning to that value.
+  size_t default_alignment =
+      std::min(absl::bit_ceil(size),
+               std::max(kAlignment,
+                        static_cast<size_t>(__STDCPP_DEFAULT_NEW_ALIGNMENT__)));
 
   // Ensure valid alignment.
   alignment = std::max(alignment, default_alignment);
@@ -369,16 +376,15 @@ void GuardedPageAllocator::MaybeRightAlign(size_t slot, size_t size,
 
   // Write magic bytes in alignment padding to detect small overflow writes.
   size_t magic_size = std::min(alignment_padding, kMagicSize);
-  memset(reinterpret_cast<void *>(adjusted_ptr + size),
+  memset(reinterpret_cast<void*>(adjusted_ptr + size),
          GetWriteOverflowMagic(slot), magic_size);
-  *ptr = reinterpret_cast<void *>(adjusted_ptr);
+  *ptr = reinterpret_cast<void*>(adjusted_ptr);
 }
 
 // If this failure occurs during "bazel test", writes a warning for Bazel to
 // display.
 static void RecordBazelWarning(absl::string_view error) {
-  const char *warning_file = tcmalloc::tcmalloc_internal::thread_safe_getenv(
-      "TEST_WARNINGS_OUTPUT_FILE");
+  const char* warning_file = thread_safe_getenv("TEST_WARNINGS_OUTPUT_FILE");
   if (!warning_file) return;  // Not a bazel test.
 
   constexpr char warning[] = "GWP-ASan error detected: ";
@@ -396,8 +402,7 @@ static void RecordBazelWarning(absl::string_view error) {
 // do here).  So we write directly to the XML file instead.
 //
 static void RecordTestFailure(absl::string_view error) {
-  const char *xml_file =
-      tcmalloc::tcmalloc_internal::thread_safe_getenv("XML_OUTPUT_FILE");
+  const char* xml_file = thread_safe_getenv("XML_OUTPUT_FILE");
   if (!xml_file) return;  // Not a gUnit test.
 
   // Record test failure for Sponge.
@@ -431,14 +436,14 @@ static void RecordCrash(absl::string_view error) {
   RecordTestFailure(error);
 }
 
-static void PrintStackTrace(void **stack_frames, size_t depth) {
+static void PrintStackTrace(void** stack_frames, size_t depth) {
   for (size_t i = 0; i < depth; ++i) {
     Log(kLog, __FILE__, __LINE__, "  @  ", stack_frames[i]);
   }
 }
 
-static void PrintStackTraceFromSignalHandler(void *context) {
-  void *stack_frames[kMaxStackDepth];
+static void PrintStackTraceFromSignalHandler(void* context) {
+  void* stack_frames[kMaxStackDepth];
   size_t depth = absl::GetStackTraceWithContext(stack_frames, kMaxStackDepth, 1,
                                                 context, nullptr);
   PrintStackTrace(stack_frames, depth);
@@ -446,9 +451,9 @@ static void PrintStackTraceFromSignalHandler(void *context) {
 
 // A SEGV handler that prints stack traces for the allocation and deallocation
 // of relevant memory as well as the location of the memory error.
-static void SegvHandler(int signo, siginfo_t *info, void *context) {
+static void SegvHandler(int signo, siginfo_t* info, void* context) {
   if (signo != SIGSEGV) return;
-  void *fault = info->si_addr;
+  void* fault = info->si_addr;
   if (!Static::guardedpage_allocator().PointerIsMine(fault)) return;
   GuardedPageAllocator::GpaStackTrace alloc_trace, dealloc_trace;
   GuardedPageAllocator::ErrorType error =
@@ -462,7 +467,9 @@ static void SegvHandler(int signo, siginfo_t *info, void *context) {
       Static::guardedpage_allocator().GetAllocationOffsetAndSize(fault);
 
   Log(kLog, __FILE__, __LINE__,
-      "*** GWP-ASan has detected a memory error ***");
+      "*** GWP-ASan "
+      "(https://google.github.io/tcmalloc/gwp-asan.html)  "
+      "has detected a memory error ***");
   Log(kLog, __FILE__, __LINE__, ">>> Access at offset", offset,
       "into buffer of length", size);
   Log(kLog, __FILE__, __LINE__,
@@ -516,7 +523,7 @@ static void SegvHandler(int signo, siginfo_t *info, void *context) {
 
 static struct sigaction old_sa;
 
-static void ForwardSignal(int signo, siginfo_t *info, void *context) {
+static void ForwardSignal(int signo, siginfo_t* info, void* context) {
   if (old_sa.sa_flags & SA_SIGINFO) {
     old_sa.sa_sigaction(signo, info, context);
   } else if (old_sa.sa_handler == SIG_DFL) {
@@ -533,7 +540,7 @@ static void ForwardSignal(int signo, siginfo_t *info, void *context) {
   }
 }
 
-static void HandleSegvAndForward(int signo, siginfo_t *info, void *context) {
+static void HandleSegvAndForward(int signo, siginfo_t* info, void* context) {
   SegvHandler(signo, info, context);
   ForwardSignal(signo, info, context);
 }
@@ -550,4 +557,6 @@ extern "C" void MallocExtension_Internal_ActivateGuardedSampling() {
   });
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

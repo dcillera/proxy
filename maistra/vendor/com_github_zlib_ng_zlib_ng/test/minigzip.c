@@ -32,10 +32,6 @@
 #  include <sys/stat.h>
 #endif
 
-#ifndef UNALIGNED_OK
-#  include <malloc.h>
-#endif
-
 #if defined(_WIN32) || defined(__CYGWIN__)
 #  include <fcntl.h>
 #  include <io.h>
@@ -101,7 +97,10 @@ void gz_compress(FILE *in, gzFile out) {
     if (gz_compress_mmap(in, out) == Z_OK) return;
 #endif
     buf = (char *)calloc(BUFLEN, 1);
-    if (buf == NULL) perror("out of memory");
+    if (buf == NULL) {
+        perror("out of memory");
+        exit(1);
+    }
 
     for (;;) {
         len = (int)fread(buf, 1, BUFLEN, in);

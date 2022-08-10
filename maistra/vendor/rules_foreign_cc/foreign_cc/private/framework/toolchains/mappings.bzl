@@ -17,13 +17,19 @@ def _toolchain_mapping(file, exec_compatible_with = [], target_compatible_with =
         target_compatible_with = target_compatible_with,
     )
 
-# This list is the single entrypoint for all foreing_cc framework toolchains.
+# This list is the single entrypoint for all foreign_cc framework toolchains.
 TOOLCHAIN_MAPPINGS = [
     _toolchain_mapping(
         exec_compatible_with = [
             "@platforms//os:linux",
         ],
         file = Label("@rules_foreign_cc//foreign_cc/private/framework/toolchains:linux_commands.bzl"),
+    ),
+    _toolchain_mapping(
+        exec_compatible_with = [
+            "@platforms//os:freebsd",
+        ],
+        file = Label("@rules_foreign_cc//foreign_cc/private/framework/toolchains:freebsd_commands.bzl"),
     ),
     _toolchain_mapping(
         exec_compatible_with = [

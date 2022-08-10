@@ -19,11 +19,11 @@
 #include <string>
 #include <vector>
 
-#include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
+#include "benchmark/benchmark.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
@@ -57,12 +57,30 @@ class SamplingMemoryTest : public ::testing::TestWithParam<size_t> {
     MallocExtension::SetProfileSamplingRate(val);
     // We do this to reset the per-thread sampler - it may have a
     // very large gap put in here if sampling had been disabled.
-    ::operator delete(::operator new(1024 * 1024 * 1024));
+    void* ptr = ::operator new(1024 * 1024 * 1024);
+    // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
+    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
+    benchmark::DoNotOptimize(ptr);
+    ::operator delete(ptr);
   }
 
   size_t CurrentHeapSize() {
-    const size_t result = Property("generic.current_allocated_bytes") +
-                          Property("tcmalloc.metadata_bytes");
+    size_t result = Property("generic.current_allocated_bytes") +
+                    Property("tcmalloc.metadata_bytes");
+    // Ignore unallocated bytes managed by the Arena.  These are accessible to
+    // future metadata allocations and we might trigger a new Arena block in the
+    // course of sampling.
+    //
+    // tcmalloc.metadata_bytes includes bytes wasted due to the Arena's block
+    // overhead, which is more attributable to the cost of sampling.
+    size_t unallocated;
+    {
+      absl::base_internal::SpinLockHolder l(&tcmalloc_internal::pageheap_lock);
+      unallocated =
+          tcmalloc_internal::Static::arena().stats().bytes_unallocated;
+    }
+
+    result = result >= unallocated ? result - unallocated : 0;
     return result;
   }
 
@@ -90,15 +108,23 @@ class SamplingMemoryTest : public ::testing::TestWithParam<size_t> {
       std::vector<int> cpus = AllowedCpus();
       ScopedAffinityMask mask(cpus[0]);
 
-      ::operator delete(::operator new(size));
+      void* ptr = ::operator new(size);
+      // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator
+      // new, https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
+      benchmark::DoNotOptimize(ptr);
+      ::operator delete(ptr);
 
       const size_t start_memory = CurrentHeapSize();
+
       void* list = nullptr;
       for (size_t alloc = 0; alloc < total; alloc += size) {
         void** object = reinterpret_cast<void**>(::operator new(size));
+        benchmark::DoNotOptimize(object);
+
         *object = list;
         list = object;
       }
+
       const size_t peak_memory = CurrentHeapSize();
 
       while (list != nullptr) {
@@ -146,8 +172,12 @@ TEST_P(SamplingMemoryTest, Overhead) {
 std::vector<size_t> InterestingSizes() {
   std::vector<size_t> ret;
 
-  for (size_t cl = 1; cl < kNumClasses; cl++) {
-    size_t size = tcmalloc::Static::sizemap().class_to_size(cl);
+  // Only use the first kNumBaseClasses size classes since classes after that
+  // are intentionally duplicated.
+  for (size_t size_class = 1; size_class < tcmalloc_internal::kNumBaseClasses;
+       size_class++) {
+    size_t size = tcmalloc::tcmalloc_internal::Static::sizemap().class_to_size(
+        size_class);
     if (size == 0) {
       continue;
     }

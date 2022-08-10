@@ -13,7 +13,18 @@ package_group(
 )
 
 bzl_library(
-    name = "rules",
+    name = "bzl_lib",
     srcs = glob(["**/*.bzl"]),
     visibility = ["//rust:__subpackages__"],
+)
+
+filegroup(
+    name = "distro",
+    srcs = glob(["*.bzl"]) + [
+        "//rust/platform/channel:distro",
+        "//rust/platform/cpu:distro",
+        "//rust/platform/os:distro",
+        "BUILD.bazel",
+    ],
+    visibility = ["//:__subpackages__"],
 )

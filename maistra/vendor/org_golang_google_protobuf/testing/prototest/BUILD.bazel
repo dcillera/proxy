@@ -4,7 +4,7 @@ go_library(
     name = "prototest",
     srcs = [
         "enum.go",
-        "prototest.go",
+        "message.go",
     ],
     importpath = "google.golang.org/protobuf/testing/prototest",
     visibility = ["//visibility:public"],
@@ -26,8 +26,8 @@ alias(
 go_test(
     name = "prototest_test",
     srcs = ["prototest_test.go"],
-    embed = [":prototest"],
     deps = [
+        ":prototest",
         "//internal/flags",
         "//internal/testprotos/irregular",
         "//internal/testprotos/legacy",

@@ -15,6 +15,15 @@
 """Utility functions not specific to the rust toolchain."""
 
 load("@bazel_tools//tools/cpp:toolchain_utils.bzl", find_rules_cc_toolchain = "find_cpp_toolchain")
+load(":providers.bzl", "BuildInfo", "CrateInfo", "DepInfo", "DepVariantInfo")
+
+UNSUPPORTED_FEATURES = [
+    "thin_lto",
+    "module_maps",
+    "use_header_modules",
+    "fdo_instrument",
+    "fdo_optimize",
+]
 
 def find_toolchain(ctx):
     """Finds the first rust toolchain that is configured.
@@ -42,7 +51,7 @@ def find_cc_toolchain(ctx):
         ctx = ctx,
         cc_toolchain = cc_toolchain,
         requested_features = ctx.features,
-        unsupported_features = ctx.disabled_features,
+        unsupported_features = UNSUPPORTED_FEATURES + ctx.disabled_features,
     )
     return cc_toolchain, feature_configuration
 
@@ -61,14 +70,13 @@ def relativize(path, start):
     src_parts = _path_parts(start)
     dest_parts = _path_parts(path)
     n = 0
-    done = False
     for src_part, dest_part in zip(src_parts, dest_parts):
         if src_part != dest_part:
             break
         n += 1
 
     relative_path = ""
-    for i in range(n, len(src_parts)):
+    for _ in range(n, len(src_parts)):
         relative_path += "../"
     relative_path += "/".join(dest_parts[n:])
 
@@ -98,42 +106,84 @@ def get_lib_name(lib):
     Returns:
         str: The name of the library
     """
+    # On macos and windows, dynamic/static libraries always end with the
+    # extension and potential versions will be before the extension, and should
+    # be part of the library name.
+    # On linux, the version usually comes after the extension.
+    # So regardless of the platform we want to find the extension and make
+    # everything left to it the library name.
 
-    # NB: The suffix may contain a version number like 'so.1.2.3'
-    libname = lib.basename.split(".", 1)[0]
+    # Search for the extension - starting from the right - by removing any
+    # trailing digit.
+    comps = lib.basename.split(".")
+    for comp in reversed(comps):
+        if comp.isdigit():
+            comps.pop()
+        else:
+            break
+
+    # The library name is now everything minus the extension.
+    libname = ".".join(comps[:-1])
 
     if libname.startswith("lib"):
         return libname[3:]
     else:
         return libname
 
-def determine_output_hash(crate_root):
+def abs(value):
+    """Returns the absolute value of a number.
+
+    Args:
+      value (int): A number.
+
+    Returns:
+      int: The absolute value of the number.
+    """
+    if value < 0:
+        return -value
+    return value
+
+def determine_output_hash(crate_root, label):
     """Generates a hash of the crate root file's path.
 
     Args:
         crate_root (File): The crate's root file (typically `lib.rs`).
+        label (Label): The label of the target.
 
     Returns:
         str: A string representation of the hash.
     """
-    return repr(hash(crate_root.path))
 
-def get_preferred_artifact(library_to_link):
+    # Take the absolute value of hash() since it could be negative.
+    h = abs(hash(crate_root.path) + hash(repr(label)))
+    return repr(h)
+
+def get_preferred_artifact(library_to_link, use_pic):
     """Get the first available library to link from a LibraryToLink object.
 
     Args:
         library_to_link (LibraryToLink): See the followg links for additional details:
             https://docs.bazel.build/versions/master/skylark/lib/LibraryToLink.html
+        use_pic: If set, prefers pic_static_library over static_library.
 
     Returns:
         File: Returns the first valid library type (only one is expected)
     """
-    return (
-        library_to_link.static_library or
-        library_to_link.pic_static_library or
-        library_to_link.interface_library or
-        library_to_link.dynamic_library
-    )
+    if use_pic:
+        # Order consistent with https://github.com/bazelbuild/bazel/blob/815dfdabb7df31d4e99b6fc7616ff8e2f9385d98/src/main/java/com/google/devtools/build/lib/rules/cpp/CcLinkingContext.java#L437.
+        return (
+            library_to_link.pic_static_library or
+            library_to_link.static_library or
+            library_to_link.interface_library or
+            library_to_link.dynamic_library
+        )
+    else:
+        return (
+            library_to_link.static_library or
+            library_to_link.pic_static_library or
+            library_to_link.interface_library or
+            library_to_link.dynamic_library
+        )
 
 def _expand_location(ctx, env, data):
     """A trivial helper for `_expand_locations`
@@ -152,7 +202,7 @@ def _expand_location(ctx, env, data):
             env = env.replace(directive, "${pwd}/" + directive)
     return ctx.expand_location(env, data)
 
-def expand_locations(ctx, env, data):
+def expand_dict_value_locations(ctx, env, data):
     """Performs location-macro expansion on string values.
 
     $(execroot ...) and $(location ...) are prefixed with ${pwd},
@@ -167,6 +217,8 @@ def expand_locations(ctx, env, data):
     as compilation happens in a separate sandbox folder, so when it comes time
     to read the file at runtime, the path is no longer valid.
 
+    See [`expand_location`](https://docs.bazel.build/versions/main/skylark/lib/ctx.html#expand_location) for detailed documentation.
+
     Args:
         ctx (ctx): The rule's context object
         env (dict): A dict whose values we iterate over
@@ -178,6 +230,27 @@ def expand_locations(ctx, env, data):
         dict: A dict of environment variables with expanded location macros
     """
     return dict([(k, _expand_location(ctx, v, data)) for (k, v) in env.items()])
+
+def expand_list_element_locations(ctx, args, data):
+    """Performs location-macro expansion on a list of string values.
+
+    $(execroot ...) and $(location ...) are prefixed with ${pwd},
+    which process_wrapper and build_script_runner will expand at run time
+    to the absolute path.
+
+    See [`expand_location`](https://docs.bazel.build/versions/main/skylark/lib/ctx.html#expand_location) for detailed documentation.
+
+    Args:
+        ctx (ctx): The rule's context object
+        args (list): A list we iterate over
+        data (sequence of Targets): The targets which may be referenced by
+            location macros. This is expected to be the `data` attribute of
+            the target, though may have other targets or attributes mixed in.
+
+    Returns:
+        list: A list of arguments with expanded location macros
+    """
+    return [_expand_location(ctx, arg, data) for arg in args]
 
 def name_to_crate_name(name):
     """Converts a build target's name into the name of its associated crate.
@@ -191,7 +264,7 @@ def name_to_crate_name(name):
 
     Note that targets can specify the `crate_name` attribute to customize their
     crate name; in situations where this is important, use the
-    crate_name_from_attr() function instead.
+    compute_crate_name() function instead.
 
     Args:
         name (str): The name of the target.
@@ -213,30 +286,38 @@ def _invalid_chars_in_crate_name(name):
 
     return dict([(c, ()) for c in name.elems() if not (c.isalnum() or c == "_")]).keys()
 
-def crate_name_from_attr(attr):
+def compute_crate_name(workspace_name, label, toolchain, name_override = None):
     """Returns the crate name to use for the current target.
 
     Args:
-        attr (struct): The attributes of the current target.
+        workspace_name (string): The current workspace name.
+        label (struct): The label of the current target.
+        toolchain (struct): The toolchain in use for the target.
+        name_override (String): An optional name to use (as an override of label.name).
 
     Returns:
         str: The crate name to use for this target.
     """
-    if hasattr(attr, "crate_name") and attr.crate_name:
-        invalid_chars = _invalid_chars_in_crate_name(attr.crate_name)
+    if name_override:
+        invalid_chars = _invalid_chars_in_crate_name(name_override)
         if invalid_chars:
             fail("Crate name '{}' contains invalid character(s): {}".format(
-                attr.crate_name,
+                name_override,
                 " ".join(invalid_chars),
             ))
-        return attr.crate_name
+        return name_override
 
-    crate_name = name_to_crate_name(attr.name)
+    if (toolchain and label and toolchain._rename_first_party_crates and
+        should_encode_label_in_crate_name(workspace_name, label, toolchain._third_party_dir)):
+        crate_name = encode_label_as_crate_name(label.package, label.name)
+    else:
+        crate_name = name_to_crate_name(label.name)
+
     invalid_chars = _invalid_chars_in_crate_name(crate_name)
     if invalid_chars:
         fail(
             "Crate name '{}' ".format(crate_name) +
-            "derived from Bazel target name '{}' ".format(attr.name) +
+            "derived from Bazel target name '{}' ".format(label.name) +
             "contains invalid character(s): {}\n".format(" ".join(invalid_chars)) +
             "Consider adding a crate_name attribute to set a valid crate name",
         )
@@ -273,3 +354,233 @@ def dedent(doc_string):
         # Remove the leading block of spaces from the current line
         block = " " * space_count
         return "\n".join([line.replace(block, "", 1).rstrip() for line in lines])
+
+def make_static_lib_symlink(actions, rlib_file):
+    """Add a .a symlink to an .rlib file.
+
+    The name of the symlink is derived from the <name> of the <name>.rlib file as follows:
+    * `<name>.a`, if <name> starts with `lib`
+    * `lib<name>.a`, otherwise.
+
+    For example, the name of the symlink for
+    * `libcratea.rlib` is `libcratea.a`
+    * `crateb.rlib` is `libcrateb.a`.
+
+    Args:
+        actions (actions): The rule's context actions object.
+        rlib_file (File): The file to symlink, which must end in .rlib.
+
+    Returns:
+        The symlink's File.
+    """
+    if not rlib_file.basename.endswith(".rlib"):
+        fail("file is not an .rlib: ", rlib_file.basename)
+    basename = rlib_file.basename[:-5]
+    if not basename.startswith("lib"):
+        basename = "lib" + basename
+    dot_a = actions.declare_file(basename + ".a", sibling = rlib_file)
+    actions.symlink(output = dot_a, target_file = rlib_file)
+    return dot_a
+
+def is_exec_configuration(ctx):
+    """Determine if a context is building for the exec configuration.
+
+    This is helpful when processing command line flags that should apply
+    to the target configuration but not the exec configuration.
+
+    Args:
+        ctx (ctx): The ctx object for the current target.
+
+    Returns:
+        True if the exec configuration is detected, False otherwise.
+    """
+
+    # TODO(djmarcin): Is there any better way to determine cfg=exec?
+    return ctx.genfiles_dir.path.find("-exec-") != -1
+
+def transform_deps(deps):
+    """Transforms a [Target] into [DepVariantInfo].
+
+    This helper function is used to transform ctx.attr.deps and ctx.attr.proc_macro_deps into
+    [DepVariantInfo].
+
+    Args:
+        deps (list of Targets): Dependencies coming from ctx.attr.deps or ctx.attr.proc_macro_deps
+
+    Returns:
+        list of DepVariantInfos.
+    """
+    return [DepVariantInfo(
+        crate_info = dep[CrateInfo] if CrateInfo in dep else None,
+        dep_info = dep[DepInfo] if DepInfo in dep else None,
+        build_info = dep[BuildInfo] if BuildInfo in dep else None,
+        cc_info = dep[CcInfo] if CcInfo in dep else None,
+    ) for dep in deps]
+
+def get_import_macro_deps(ctx):
+    """Returns a list of targets to be added to proc_macro_deps.
+
+    Args:
+        ctx (struct): the ctx of the current target.
+
+    Returns:
+        list of Targets. Either empty (if the fake import macro implementation
+        is being used), or a singleton list with the real implementation.
+    """
+    if ctx.attr._import_macro_dep.label.name == "fake_import_macro_impl":
+        return []
+
+    return [ctx.attr._import_macro_dep]
+
+def should_encode_label_in_crate_name(workspace_name, label, third_party_dir):
+    """Determines if the crate's name should include the Bazel label, encoded.
+
+    Crate names may only encode the label if the target is in the current repo,
+    the target is not in the third_party_dir, and the current repo is not
+    rules_rust.
+
+    Args:
+        workspace_name (string): The name of the current workspace.
+        label (Label): The package in question.
+        third_party_dir (string): The directory in which third-party packages are kept.
+
+    Returns:
+        True if the crate name should encode the label, False otherwise.
+    """
+
+    # TODO(hlopko): This code assumes a monorepo; make it work with external
+    # repositories as well.
+    return (
+        workspace_name != "rules_rust" and
+        not label.workspace_root and
+        not ("//" + label.package + "/").startswith(third_party_dir + "/")
+    )
+
+# This is a list of pairs, where the first element of the pair is a character
+# that is allowed in Bazel package or target names but not in crate names; and
+# the second element is an encoding of that char suitable for use in a crate
+# name.
+_encodings = (
+    (":", "colon"),
+    ("!", "bang"),
+    ("%", "percent"),
+    ("@", "at"),
+    ("^", "caret"),
+    ("`", "backtick"),
+    (" ", "space"),
+    ("\"", "quote"),
+    ("#", "hash"),
+    ("$", "dollar"),
+    ("&", "ampersand"),
+    ("'", "backslash"),
+    ("(", "lparen"),
+    (")", "rparen"),
+    ("*", "star"),
+    ("-", "dash"),
+    ("+", "plus"),
+    (",", "comma"),
+    (";", "semicolon"),
+    ("<", "langle"),
+    ("=", "equal"),
+    (">", "rangle"),
+    ("?", "question"),
+    ("[", "lbracket"),
+    ("]", "rbracket"),
+    ("{", "lbrace"),
+    ("|", "pipe"),
+    ("}", "rbrace"),
+    ("~", "tilde"),
+    ("/", "slash"),
+    (".", "dot"),
+)
+
+# For each of the above encodings, we generate two substitution rules: one that
+# ensures any occurrences of the encodings themselves in the package/target
+# aren't clobbered by this translation, and one that does the encoding itself.
+# We also include a rule that protects the clobbering-protection rules from
+# getting clobbered.
+_substitutions = [("_quote", "_quotequote_")] + [
+    subst
+    for (pattern, replacement) in _encodings
+    for subst in (
+        ("_{}_".format(replacement), "_quote{}_".format(replacement)),
+        (pattern, "_{}_".format(replacement)),
+    )
+]
+
+def encode_label_as_crate_name(package, name):
+    """Encodes the package and target names in a format suitable for a crate name.
+
+    Args:
+        package (string): The package of the target in question.
+        name (string): The name of the target in question.
+
+    Returns:
+        A string that encodes the package and target name, to be used as the crate's name.
+    """
+    full_name = package + ":" + name
+    return _replace_all(full_name, _substitutions)
+
+def decode_crate_name_as_label_for_testing(crate_name):
+    """Decodes a crate_name that was encoded by encode_label_as_crate_name.
+
+    This is used to check that the encoding is bijective; it is expected to only
+    be used in tests.
+
+    Args:
+        crate_name (string): The name of the crate.
+
+    Returns:
+        A string representing the Bazel label (package and target).
+    """
+    return _replace_all(crate_name, [(t[1], t[0]) for t in _substitutions])
+
+def _replace_all(string, substitutions):
+    """Replaces occurrences of the given patterns in `string`.
+
+    There are a few reasons this looks complicated:
+    * The substitutions are performed with some priority, i.e. patterns that are
+      listed first in `substitutions` are higher priority than patterns that are
+      listed later.
+    * We also take pains to avoid doing replacements that overlap with each
+      other, since overlaps invalidate pattern matches.
+    * To avoid hairy offset invalidation, we apply the substitutions
+      right-to-left.
+    * To avoid the "_quote" -> "_quotequote_" rule introducing new pattern
+      matches later in the string during decoding, we take the leftmost
+      replacement, in cases of overlap.  (Note that no rule can induce new
+      pattern matches *earlier* in the string.) (E.g. "_quotedot_" encodes to
+      "_quotequote_dot_". Note that "_quotequote_" and "_dot_" both occur in
+      this string, and overlap.).
+
+    Args:
+        string (string): the string in which the replacements should be performed.
+        substitutions: the list of patterns and replacements to apply.
+
+    Returns:
+        A string with the appropriate substitutions performed.
+    """
+
+    # Find the highest-priority pattern matches for each string index, going
+    # left-to-right and skipping indices that are already involved in a
+    # pattern match.
+    plan = {}
+    matched_indices_set = {}
+    for pattern_start in range(len(string)):
+        if pattern_start in matched_indices_set:
+            continue
+        for (pattern, replacement) in substitutions:
+            if not string.startswith(pattern, pattern_start):
+                continue
+            length = len(pattern)
+            plan[pattern_start] = (length, replacement)
+            matched_indices_set.update([(pattern_start + i, True) for i in range(length)])
+            break
+
+    # Execute the replacement plan, working from right to left.
+    for pattern_start in sorted(plan.keys(), reverse = True):
+        length, replacement = plan[pattern_start]
+        after_pattern = pattern_start + length
+        string = string[:pattern_start] + replacement + string[after_pattern:]
+
+    return string

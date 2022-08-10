@@ -1,35 +1,40 @@
 ---
-platforms:
-  ubuntu1604:
-    bazel: 3.5.0 # test minimum supported version of bazel on ubuntu1604 only
+tasks:
+  ubuntu1804_bazel400:
+    platform: ubuntu1804
+    bazel: 4.2.1 # test minimum supported version of bazel
+    shell_commands:
+      - tests/core/cgo/generate_imported_dylib.sh
     build_targets:
-    - "..."
+    - "//..."
     test_targets:
-    - "..."
-  ubuntu1804:
+    - "//..."
+  ubuntu2004:
     # enable some unflipped incompatible flags on this platform to ensure we don't regress.
+    shell_commands:
+      - tests/core/cgo/generate_imported_dylib.sh
     build_flags:
-    - "--incompatible_load_cc_rules_from_bzl"
     - "--incompatible_load_proto_rules_from_bzl"
-    - "--incompatible_restrict_string_escapes"
     - "--incompatible_enable_cc_toolchain_resolution"
     test_flags:
-    - "--incompatible_load_cc_rules_from_bzl"
     - "--incompatible_load_proto_rules_from_bzl"
-    - "--incompatible_restrict_string_escapes"
     - "--incompatible_enable_cc_toolchain_resolution"
     build_targets:
-    - "..."
+    - "//..."
     test_targets:
-    - "..."
+    - "//..."
   macos:
+    shell_commands:
+      - tests/core/cgo/generate_imported_dylib.sh
     build_targets:
-    - "..."
+    - "//..."
     test_targets:
-    - "..."
+    - "//..."
   rbe_ubuntu1604:
+    shell_commands:
+      - tests/core/cgo/generate_imported_dylib.sh
     build_targets:
-    - "..."
+    - "//..."
     test_flags:
     # Some tests depend on this feature being disabled. However, because it's
     # enabled by default in the rbe_ubuntu1604 platform, we cannot simply remove
@@ -41,7 +46,7 @@ platforms:
     - "--test_tag_filters=-local"
     test_targets:
     - "--"
-    - "..."
+    - "//..."
     - "-//tests/core/go_path:go_path_test"
     - "-//tests/core/stdlib:buildid_test"
   windows:
@@ -69,7 +74,7 @@ platforms:
     # TODO(#1790): Tests that require data should use bazel.Runfile.
     # TODO(#2516): Tests that require protoc fail when protoc is built with mingw-gcc.
     - "--"
-    - "..."
+    - "//..."
     - "-@com_github_golang_protobuf//ptypes:go_default_library_gen"
     - "-@com_google_protobuf//:any_proto"
     - "-@com_google_protobuf//:api_proto"
@@ -154,8 +159,12 @@ platforms:
     - "-@test_chdir_remote//sub:go_default_test"
     - "-//tests/core/cgo:dylib_client"
     - "-//tests/core/cgo:dylib_test"
+    - "-//tests/core/cgo:generated_dylib_client"
+    - "-//tests/core/cgo:generated_dylib_test"
     - "-//tests/core/cgo:versioned_dylib_client"
     - "-//tests/core/cgo:versioned_dylib_test"
+    - "-//tests/core/cgo:generated_versioned_dylib_client"
+    - "-//tests/core/cgo:generated_versioned_dylib_test"
     - "-//tests/core/cross:proto_test"
     - "-//tests/core/go_embed_data:go_default_test"
     - "-//tests/core/go_embed_data:go_default_library"
@@ -184,6 +193,9 @@ platforms:
     - "-//tests/core/go_plugin:go_plugin"
     - "-//tests/core/go_plugin:go_default_test"
     - "-//tests/core/go_plugin:plugin"
+    - "-//tests/core/go_plugin_with_proto_library:go_plugin_with_proto_library"
+    - "-//tests/core/go_plugin_with_proto_library:go_default_test"
+    - "-//tests/core/go_plugin_with_proto_library:plugin"
     - "-//tests/core/go_proto_library:all"
     - "-//tests/core/go_proto_library_importmap:foo_go_proto"
     - "-//tests/core/go_proto_library_importmap:foo_proto"
@@ -252,7 +264,7 @@ platforms:
     - "--test_env=PATH"
     test_targets:
     - "--"
-    - "..."
+    - "//..."
     - "-//go/tools/bazel:bazel_test"
     - "-@org_golang_x_crypto//ed25519:ed25519_test"
     - "-@org_golang_x_crypto//sha3:sha3_test"
@@ -264,10 +276,15 @@ platforms:
     - "-@org_golang_x_tools//cmd/splitdwarf/internal/macho:macho_test"
     - "-@test_chdir_remote//sub:go_default_test"
     - "-//tests:buildifier_test" # requires bash
-    - "-//tests/core/cgo:dylib_test"
     - "-//tests/core/cgo:dylib_client"
-    - "-//tests/core/cgo:versioned_dylib_test"
+    - "-//tests/core/cgo:dylib_test"
+    - "-//tests/core/cgo:generated_dylib_client"
+    - "-//tests/core/cgo:generated_dylib_test"
+    - "-//tests/core/cgo:race_test" # fails on Windows due to upstream bug, see issue #2911
     - "-//tests/core/cgo:versioned_dylib_client"
+    - "-//tests/core/cgo:versioned_dylib_test"
+    - "-//tests/core/cgo:generated_versioned_dylib_client"
+    - "-//tests/core/cgo:generated_versioned_dylib_test"
     - "-//tests/core/coverage:coverage_test"
     - "-//tests/core/cross:proto_test"
     - "-//tests/core/go_binary:go_default_test"
@@ -291,11 +308,15 @@ platforms:
     - "-//tests/core/go_plugin:go_plugin"
     - "-//tests/core/go_plugin:go_default_test"
     - "-//tests/core/go_plugin:plugin"
+    - "-//tests/core/go_plugin_with_proto_library:go_plugin_with_proto_library"
+    - "-//tests/core/go_plugin_with_proto_library:go_default_test"
+    - "-//tests/core/go_plugin_with_proto_library:plugin"
     - "-//tests/core/go_proto_library:all"
     - "-//tests/core/go_proto_library_importmap:importmap_test"
     - "-//tests/core/go_test:data_test"
     - "-//tests/core/go_test:pwd_test"
     - "-//tests/core/nogo/coverage:coverage_test"
+    - "-//tests/core/race:race_test" # fails on Windows due to upstream bug, see issue #2911
     - "-//tests/core/stdlib:buildid_test"
     - "-//tests/examples/executable_name:executable_name"
     - "-//tests/integration/gazelle:gazelle_test" # exceeds command line length limit
@@ -318,3 +339,7 @@ platforms:
     - "-//tests/legacy/test_chdir:go_default_test"
     - "-//tests/legacy/test_rundir:go_default_test"
     - "-//tests/legacy/transitive_data:go_default_test"
+    # Stardoc produces different line-endings on windows,
+    # so the documentation it generates doesn't match the checked in files.
+    # - Tracking issue https://github.com/bazelbuild/stardoc/issues/42.
+    - "-//docs:all"

@@ -9,7 +9,7 @@ go_library(
         "//encoding/protowire",
         "//internal/detrand",
         "//internal/genid",
-        "//internal/mapsort",
+        "//internal/order",
         "//proto",
         "//reflect/protoreflect",
         "//reflect/protoregistry",
@@ -25,8 +25,8 @@ alias(
 go_test(
     name = "msgfmt_test",
     srcs = ["format_test.go"],
-    embed = [":msgfmt"],
     deps = [
+        ":msgfmt",
         "//internal/detrand",
         "//internal/testprotos/test",
         "//internal/testprotos/textpb2",

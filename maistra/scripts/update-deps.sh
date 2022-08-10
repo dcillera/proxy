@@ -16,8 +16,6 @@
 set -e
 set -o pipefail
 
-source /opt/rh/gcc-toolset-9/enable
-
 function init(){
   ROOT_DIR="$(pwd)"
 
@@ -76,7 +74,7 @@ function copy_files() {
       if contains "${repo_name}" "${IGNORE_LIST[@]}" ; then
         continue
       fi
-
+echo ${repo_name}
       cp_flags="-rL"
       if [ "${repo_name}" == "emscripten_toolchain" ]; then
         cp_flags="-r"

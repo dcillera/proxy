@@ -1,1 +1,0 @@
-extern "C" int native_dep() { return 42; }

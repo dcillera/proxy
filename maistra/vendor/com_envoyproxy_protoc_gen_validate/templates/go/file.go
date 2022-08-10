@@ -13,13 +13,14 @@ import (
 	"net/mail"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"google.golang.org/protobuf/types/known/anypb"
 
-	{{ range $path, $pkg := enumPackages (externalEnums .) }}
+	{{ range $pkg, $path := enumPackages (externalEnums .) }}
 		{{ $pkg }} "{{ $path }}"
 	{{ end }}
 )
@@ -37,9 +38,10 @@ var (
 	_ = (*url.URL)(nil)
 	_ = (*mail.Address)(nil)
 	_ = anypb.Any{}
+	_ = sort.Sort
 
-	{{ range (externalEnums .) }}
-		_ = {{ pkg . }}.{{ name . }}(0)
+	{{ range $pkg, $path := enumPackages (externalEnums .) }}
+	_ = {{ $pkg }}.{{ enumName (index (externalEnums $) 0) }}(0)
 	{{ end }}
 )
 

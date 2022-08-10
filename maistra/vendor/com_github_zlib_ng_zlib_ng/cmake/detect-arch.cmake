@@ -24,8 +24,8 @@ else()
     try_run(
         run_result_unused
         compile_result_unused
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/detect-arch.c
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/detect-arch.c
         COMPILE_OUTPUT_VARIABLE RAWOUTPUT
         CMAKE_FLAGS CMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES}
     )
@@ -88,6 +88,9 @@ elseif("${ARCH}" MATCHES "rs6000")
 elseif("${ARCH}" MATCHES "wasm32")
     set(BASEARCH "wasm32")
     set(BASEARCH_WASM32_FOUND TRUE)
+elseif("${ARCH}" MATCHES "riscv(32|64)")
+    set(BASEARCH "riscv")
+    set(BASEARCH_RISCV_FOUND TRUE)
 else()
     set(BASEARCH "x86")
     set(BASEARCH_X86_FOUND TRUE)

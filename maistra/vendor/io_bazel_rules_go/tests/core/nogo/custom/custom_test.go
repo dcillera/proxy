@@ -31,7 +31,7 @@ func TestMain(m *testing.M) {
 		Nogo: "@//:nogo",
 		Main: `
 -- BUILD.bazel --
-load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_tool_library", "nogo")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "nogo")
 
 nogo(
     name = "nogo",
@@ -44,29 +44,29 @@ nogo(
     visibility = ["//visibility:public"],
 )
 
-go_tool_library(
+go_library(
     name = "importfmt",
     srcs = ["importfmt.go"],
     importpath = "importfmtanalyzer",
-    deps = ["@org_golang_x_tools//go/analysis:go_tool_library"],
+    deps = ["@org_golang_x_tools//go/analysis"],
     visibility = ["//visibility:public"],
 )
 
-go_tool_library(
+go_library(
     name = "foofuncname",
     srcs = ["foofuncname.go"],
     importpath = "foofuncanalyzer",
-    deps = ["@org_golang_x_tools//go/analysis:go_tool_library"],
+    deps = ["@org_golang_x_tools//go/analysis"],
     visibility = ["//visibility:public"],
 )
 
-go_tool_library(
+go_library(
     name = "visibility",
     srcs = ["visibility.go"],
     importpath = "visibilityanalyzer",
     deps = [
-        "@org_golang_x_tools//go/analysis:go_tool_library",
-        "@org_golang_x_tools//go/ast/inspector:go_tool_library",
+        "@org_golang_x_tools//go/analysis",
+        "@org_golang_x_tools//go/ast/inspector",
     ],
     visibility = ["//visibility:public"],
 )
@@ -76,6 +76,23 @@ go_library(
     srcs = ["has_errors.go"],
     importpath = "haserrors",
     deps = [":dep"],
+)
+
+go_library(
+    name = "has_errors_linedirective",
+    srcs = ["has_errors_linedirective.go"],
+    importpath = "haserrors_linedirective",
+    deps = [":dep"],
+)
+
+go_library(
+    name = "uses_cgo_with_errors",
+    srcs = [
+        "examplepkg/uses_cgo_clean.go",
+        "examplepkg/pure_src_with_err_calling_native.go",
+    ],
+    importpath = "examplepkg",
+    cgo = True,
 )
 
 go_library(
@@ -290,8 +307,25 @@ import (
 )
 
 func Foo() bool { // This should fail foofuncname
-	dep.D()     // This should fail visibility
-	return true // This should fail boolreturn
+	dep.D() // This should fail visibility
+	return true
+}
+
+-- has_errors_linedirective.go --
+//line linedirective.go:1
+package haserrors_linedirective
+
+import (
+	/*line linedirective_importfmt.go:4*/ _ "fmt" // This should fail importfmt
+
+	"dep"
+)
+
+//line linedirective_foofuncname.go:9
+func Foo() bool { // This should fail foofuncname
+//line linedirective_visibility.go:10
+	dep.D() // This should fail visibility
+	return true
 }
 
 -- no_errors.go --
@@ -310,6 +344,26 @@ package dep
 
 // visibility:noerrors
 func D() {
+}
+
+-- examplepkg/uses_cgo_clean.go --
+package examplepkg
+
+// #include <stdlib.h>
+import "C"
+
+func Bar() bool {
+  if C.rand() > 10 {
+    return true
+  }
+  return false
+}
+
+-- examplepkg/pure_src_with_err_calling_native.go --
+package examplepkg
+
+func Foo() bool { // This should fail foofuncname
+  return Bar()
 }
 
 `,
@@ -332,7 +386,17 @@ func Test(t *testing.T) {
 				`has_errors.go:.*function D is not visible in this package \(visibility\)`,
 			},
 		}, {
+			desc:        "default_config_linedirective",
+			target:      "//:has_errors_linedirective",
+			wantSuccess: false,
+			includes: []string{
+				`linedirective_importfmt.go:.*package fmt must not be imported \(importfmt\)`,
+				`linedirective_foofuncname.go:.*function must not be named Foo \(foofuncname\)`,
+				`linedirective_visibility.go:.*function D is not visible in this package \(visibility\)`,
+			},
+		}, {
 			desc:        "custom_config",
+			config:      "config.json",
 			target:      "//:has_errors",
 			wantSuccess: false,
 			includes: []string{
@@ -340,7 +404,28 @@ func Test(t *testing.T) {
 				`has_errors.go:.*function must not be named Foo \(foofuncname\)`,
 			},
 			excludes: []string{
-				"custom/has_errors.go:.*function D is not visible in this package",
+				`visib`,
+			},
+		}, {
+			desc:        "custom_config_linedirective",
+			config:      "config.json",
+			target:      "//:has_errors_linedirective",
+			wantSuccess: false,
+			includes: []string{
+				`linedirective_foofuncname.go:.*function must not be named Foo \(foofuncname\)`,
+				`linedirective_visibility.go:.*function D is not visible in this package \(visibility\)`,
+			},
+			excludes: []string{
+				`importfmt`,
+			},
+		}, {
+			desc:        "uses_cgo_with_errors",
+			config:      "config.json",
+			target:      "//:uses_cgo_with_errors",
+			wantSuccess: false,
+			includes: []string{
+				// note the cross platform regex :)
+				`.*[\\/]cgo[\\/]examplepkg[\\/]pure_src_with_err_calling_native.go:.*function must not be named Foo \(foofuncname\)`,
 			},
 		}, {
 			desc:        "no_errors",
@@ -371,7 +456,7 @@ func Test(t *testing.T) {
 				if matched, err := regexp.Match(pattern, stderr.Bytes()); err != nil {
 					t.Fatal(err)
 				} else if !matched {
-					t.Errorf("output did not contain pattern: %s", pattern)
+					t.Errorf("got output:\n %s\n which does not contain pattern: %s", string(stderr.Bytes()), pattern)
 				}
 			}
 			for _, pattern := range test.excludes {

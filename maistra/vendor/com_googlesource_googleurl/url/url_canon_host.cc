@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "polyfills/base/check.h"
+#include "polyfills/base/cpu_reduction_experiment.h"
 #include "url/url_canon.h"
 #include "url/url_canon_internal.h"
 

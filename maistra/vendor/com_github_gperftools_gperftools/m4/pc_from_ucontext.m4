@@ -28,9 +28,11 @@ AC_DEFUN([AC_PC_FROM_UCONTEXT],
    pc_fields="$pc_fields uc_mcontext.sc_ip"            # Linux (ia64)
    pc_fields="$pc_fields uc_mcontext.pc"               # Linux (mips)
    pc_fields="$pc_fields uc_mcontext.uc_regs->gregs[[PT_NIP]]" # Linux (ppc)
+   pc_fields="$pc_fields uc_mcontext.__gregs[[REG_PC]]"  # Linux (riscv64)
    pc_fields="$pc_fields uc_mcontext.psw.addr"         # Linux (s390)
    pc_fields="$pc_fields uc_mcontext.gregs[[R15]]"     # Linux (arm old [untested])
    pc_fields="$pc_fields uc_mcontext.arm_pc"           # Linux (arm arch 5)
+   pc_fields="$pc_fields uc_mcontext.cr0_hi"           # Linux (e2k)
    pc_fields="$pc_fields uc_mcontext.gp_regs[[PT_NIP]]"  # Suse SLES 11 (ppc64)
    pc_fields="$pc_fields uc_mcontext.mc_eip"           # FreeBSD (i386)
    pc_fields="$pc_fields uc_mcontext.mc_srr0"          # FreeBSD (powerpc, powerpc64)
@@ -43,6 +45,7 @@ AC_DEFUN([AC_PC_FROM_UCONTEXT],
    pc_fields="$pc_fields uc_mcontext->__ss.__rip"      # OS X (>=10.5 [untested])
    pc_fields="$pc_fields uc_mcontext->ss.srr0"         # OS X (ppc, ppc64 [untested])
    pc_fields="$pc_fields uc_mcontext->__ss.__srr0"     # OS X (>=10.5 [untested])
+   pc_fields="$pc_fields uc_mcontext->__ss.__pc"       # OS X (arm64)
    pc_field_found=false
    for pc_field in $pc_fields; do
      if ! $pc_field_found; then

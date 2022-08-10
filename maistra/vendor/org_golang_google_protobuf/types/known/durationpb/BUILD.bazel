@@ -20,8 +20,8 @@ alias(
 go_test(
     name = "durationpb_test",
     srcs = ["duration_test.go"],
-    embed = [":durationpb"],
     deps = [
+        ":durationpb",
         "//internal/detrand",
         "//testing/protocmp",
         "@com_github_google_go_cmp//cmp:go_default_library",

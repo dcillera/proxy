@@ -13,6 +13,7 @@
  */
 
 #define _POSIX_SOURCE 1  /* This file needs POSIX for fileno(). */
+#define _POSIX_C_SOURCE 200112  /* For snprintf(). */
 
 #include "zbuild.h"
 #ifdef ZLIB_COMPAT
@@ -29,10 +30,6 @@
 #  include <sys/types.h>
 #  include <sys/mman.h>
 #  include <sys/stat.h>
-#endif
-
-#ifndef UNALIGNED_OK
-#  include <malloc.h>
 #endif
 
 #if defined(_WIN32) || defined(__CYGWIN__)
@@ -268,9 +265,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t dataLen) {
     snprintf(outmode, sizeof(outmode), "%s", "wb");
 
     /* Compression level: [0..9]. */
-    outmode[2] = data[0] % 10;
+    outmode[2] = '0' + (data[0] % 10);
 
-    switch (data[0] % 4) {
+    switch (data[dataLen-1] % 6) {
     default:
     case 0:
         outmode[3] = 0;
@@ -287,10 +284,23 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t dataLen) {
         /* compress with Z_RLE */
         outmode[3] = 'R';
         break;
+    case 4:
+        /* compress with Z_FIXED */
+        outmode[3] = 'F';
+        break;
+    case 5:
+        /* direct */
+        outmode[3] = 'T';
+        break;
     }
 
     file_compress(inFileName, outmode);
-    file_uncompress(outFileName);
+
+    /* gzopen does not support reading in direct mode */
+    if (outmode[3] == 'T')
+        inFileName = outFileName;
+    else
+        file_uncompress(outFileName);
 
     /* Check that the uncompressed file matches the input data. */
     in = fopen(inFileName, "rb");

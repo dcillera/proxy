@@ -1,12 +1,12 @@
 /*
     __ _____ _____ _____
  __|  |   __|     |   | |  JSON for Modern C++ (test suite)
-|  |  |__   |  |  | | | |  version 3.9.1
+|  |  |__   |  |  | | | |  version 3.10.5
 |_____|_____|_____|_|___|  https://github.com/nlohmann/json
 
 Licensed under the MIT License <http://opensource.org/licenses/MIT>.
 SPDX-License-Identifier: MIT
-Copyright (c) 2013-2019 Niels Lohmann <http://nlohmann.me>.
+Copyright (c) 2013-2022 Niels Lohmann <http://nlohmann.me>.
 
 Permission is hereby  granted, free of charge, to any  person obtaining a copy
 of this software and associated  documentation files (the "Software"), to deal
@@ -43,7 +43,7 @@ TEST_CASE("algorithms")
         {
             CHECK(std::all_of(j_array.begin(), j_array.end(), [](const json & value)
             {
-                return value.size() > 0;
+                return !value.empty();
             }));
             CHECK(std::all_of(j_object.begin(), j_object.end(), [](const json & value)
             {
@@ -67,7 +67,7 @@ TEST_CASE("algorithms")
         {
             CHECK(std::none_of(j_array.begin(), j_array.end(), [](const json & value)
             {
-                return value.size() == 0;
+                return value.empty();
             }));
             CHECK(std::none_of(j_object.begin(), j_object.end(), [](const json & value)
             {

@@ -26,6 +26,7 @@
 #include "absl/random/random.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
 
 using testing::ElementsAre;
@@ -34,17 +35,17 @@ using testing::Pair;
 class BitmapTest : public testing::Test {
  protected:
   template <size_t N>
-  std::vector<size_t> FindSetResults(const Bitmap<N> &map) {
+  std::vector<size_t> FindSetResults(const Bitmap<N>& map) {
     return FindResults<N, true>(map);
   }
 
   template <size_t N>
-  std::vector<size_t> FindClearResults(const Bitmap<N> &map) {
+  std::vector<size_t> FindClearResults(const Bitmap<N>& map) {
     return FindResults<N, false>(map);
   }
 
   template <size_t N, bool Value>
-  std::vector<size_t> FindResults(const Bitmap<N> &map) {
+  std::vector<size_t> FindResults(const Bitmap<N>& map) {
     std::vector<size_t> results;
     ssize_t last = -1;
     for (size_t i = 0; i < N; ++i) {
@@ -62,17 +63,17 @@ class BitmapTest : public testing::Test {
   }
 
   template <size_t N>
-  std::vector<size_t> FindSetResultsBackwards(const Bitmap<N> &map) {
+  std::vector<size_t> FindSetResultsBackwards(const Bitmap<N>& map) {
     return FindResultsBackwards<N, true>(map);
   }
 
   template <size_t N>
-  std::vector<size_t> FindClearResultsBackwards(const Bitmap<N> &map) {
+  std::vector<size_t> FindClearResultsBackwards(const Bitmap<N>& map) {
     return FindResultsBackwards<N, false>(map);
   }
 
   template <size_t N, bool Value>
-  std::vector<size_t> FindResultsBackwards(const Bitmap<N> &map) {
+  std::vector<size_t> FindResultsBackwards(const Bitmap<N>& map) {
     std::vector<size_t> results;
     ssize_t last = N;
     for (ssize_t i = N - 1; i >= 0; --i) {
@@ -94,6 +95,29 @@ TEST_F(BitmapTest, GetBitEmpty) {
   Bitmap<253> map;
   for (size_t i = 0; i < map.size(); ++i) {
     EXPECT_EQ(map.GetBit(i), 0);
+  }
+}
+
+TEST_F(BitmapTest, CheckIsZero) {
+  Bitmap<253> map;
+  EXPECT_EQ(map.IsZero(), true);
+  for (size_t i = 0; i < map.size(); ++i) {
+    map.Clear();
+    EXPECT_EQ(map.IsZero(), true);
+    map.SetBit(i);
+    EXPECT_EQ(map.IsZero(), false);
+  }
+}
+
+TEST_F(BitmapTest, CheckClearLowestBit) {
+  Bitmap<253> map;
+  for (size_t i = 0; i < map.size(); ++i) {
+    map.SetBit(i);
+  }
+  for (size_t i = 0; i < map.size(); ++i) {
+    size_t index = map.FindSet(0);
+    EXPECT_EQ(index, i);
+    map.ClearLowestBit();
   }
 }
 
@@ -266,4 +290,5 @@ TEST_F(RangeTrackerTest, Trivial) {
 }
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

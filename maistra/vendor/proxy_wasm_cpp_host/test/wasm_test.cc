@@ -20,21 +20,22 @@
 
 namespace proxy_wasm {
 
-auto test_values = testing::ValuesIn(getRuntimes());
+INSTANTIATE_TEST_SUITE_P(WasmEngines, TestVm, testing::ValuesIn(getWasmEngines()),
+                         [](const testing::TestParamInfo<std::string> &info) {
+                           return info.param;
+                         });
 
-INSTANTIATE_TEST_SUITE_P(Runtimes, TestVM, test_values);
-
-// Failcallbacks only used for runtimes - not available for nullvm.
-TEST_P(TestVM, GetOrCreateThreadLocalWasmFailCallbacks) {
-  const auto plugin_name = "plugin_name";
-  const auto root_id = "root_id";
-  const auto vm_id = "vm_id";
-  const auto vm_config = "vm_config";
-  const auto plugin_config = "plugin_config";
+// Fail callbacks only used for WasmVMs - not available for NullVM.
+TEST_P(TestVm, GetOrCreateThreadLocalWasmFailCallbacks) {
+  const auto *const plugin_name = "plugin_name";
+  const auto *const root_id = "root_id";
+  const auto *const vm_id = "vm_id";
+  const auto *const vm_config = "vm_config";
+  const auto *const plugin_config = "plugin_config";
   const auto fail_open = false;
 
   // Create a plugin.
-  const auto plugin = std::make_shared<PluginBase>(plugin_name, root_id, vm_id, runtime_,
+  const auto plugin = std::make_shared<PluginBase>(plugin_name, root_id, vm_id, engine_,
                                                    plugin_config, fail_open, "plugin_key");
 
   // Define callbacks.
@@ -47,15 +48,16 @@ TEST_P(TestVM, GetOrCreateThreadLocalWasmFailCallbacks) {
   };
 
   WasmHandleCloneFactory wasm_handle_clone_factory =
-      [this](std::shared_ptr<WasmHandleBase> base_wasm_handle) -> std::shared_ptr<WasmHandleBase> {
+      [this](const std::shared_ptr<WasmHandleBase> &base_wasm_handle)
+      -> std::shared_ptr<WasmHandleBase> {
     auto wasm = std::make_shared<WasmBase>(base_wasm_handle,
                                            [this]() -> std::unique_ptr<WasmVm> { return newVm(); });
     return std::make_shared<WasmHandleBase>(wasm);
   };
 
   PluginHandleFactory plugin_handle_factory =
-      [](std::shared_ptr<WasmHandleBase> base_wasm,
-         std::shared_ptr<PluginBase> plugin) -> std::shared_ptr<PluginHandleBase> {
+      [](const std::shared_ptr<WasmHandleBase> &base_wasm,
+         const std::shared_ptr<PluginBase> &plugin) -> std::shared_ptr<PluginHandleBase> {
     return std::make_shared<PluginHandleBase>(base_wasm, plugin);
   };
 
@@ -100,7 +102,7 @@ TEST_P(TestVM, GetOrCreateThreadLocalWasmFailCallbacks) {
 
   // This time, create another thread local plugin with *different* plugin key for the same vm_key.
   // This one also should not end up using the failed VM.
-  const auto plugin2 = std::make_shared<PluginBase>(plugin_name, root_id, vm_id, runtime_,
+  const auto plugin2 = std::make_shared<PluginBase>(plugin_name, root_id, vm_id, engine_,
                                                     plugin_config, fail_open, "another_plugin_key");
   auto thread_local_plugin3 = getOrCreateThreadLocalPlugin(
       base_wasm_handle, plugin2, wasm_handle_clone_factory, plugin_handle_factory);

@@ -26,7 +26,8 @@ ABSL_ATTRIBUTE_WEAK uint64_t TCMalloc_Internal_GetHeapSizeHardLimit();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetHPAASubrelease();
 ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_GetHugePageFillerSkipSubreleaseInterval(absl::Duration* v);
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetLazyPerCpuCachesEnabled();
+ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetShufflePerCpuCachesEnabled();
+ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPrioritizeSpansEnabled();
 ABSL_ATTRIBUTE_WEAK double
 TCMalloc_Internal_GetPeakSamplingHeapGrowthFraction();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPerCpuCachesEnabled();
@@ -35,7 +36,9 @@ ABSL_ATTRIBUTE_WEAK size_t TCMalloc_Internal_GetStats(char* buffer,
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetGuardedSamplingRate(int64_t v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHPAASubrelease(bool v);
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetLazyPerCpuCachesEnabled(bool v);
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetShufflePerCpuCachesEnabled(
+    bool v);
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPrioritizeSpansEnabled(bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMaxTotalThreadCacheBytes(
     int64_t v);
@@ -45,6 +48,24 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPerCpuCachesEnabled(bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetProfileSamplingRate(int64_t v);
 ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(absl::Duration v);
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetLifetimeAllocatorOptions(
+    absl::string_view s);
+ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_ColdExperimentActive();
+ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(
+    bool v);
+ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_PossiblyCold(const void* ptr);
+ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPerCpuCachesDynamicSlabEnabled();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(
+    bool v);
+ABSL_ATTRIBUTE_WEAK double
+TCMalloc_Internal_GetPerCpuCachesDynamicSlabGrowThreshold();
+ABSL_ATTRIBUTE_WEAK void
+TCMalloc_Internal_SetPerCpuCachesDynamicSlabGrowThreshold(double v);
+ABSL_ATTRIBUTE_WEAK double
+TCMalloc_Internal_GetPerCpuCachesDynamicSlabShrinkThreshold();
+ABSL_ATTRIBUTE_WEAK void
+TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(double v);
 }
 
 #endif  // TCMALLOC_INTERNAL_PARAMETER_ACCESSORS_H_

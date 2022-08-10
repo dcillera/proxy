@@ -1,0 +1,1 @@
+workspace(name = "wasmtime__cranelift_frontend__0_82_2")

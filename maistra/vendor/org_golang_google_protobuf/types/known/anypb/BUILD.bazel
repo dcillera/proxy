@@ -22,8 +22,8 @@ alias(
 go_test(
     name = "anypb_test",
     srcs = ["any_test.go"],
-    embed = [":anypb"],
     deps = [
+        ":anypb",
         "//internal/testprotos/test",
         "//proto",
         "//reflect/protoreflect",
