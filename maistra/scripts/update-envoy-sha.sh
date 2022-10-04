@@ -32,7 +32,7 @@ function get_envoy_sha() {
   branch="${BRANCH:-$(git symbolic-ref --quiet --short HEAD)}"
 
   pushd "${WORKDIR}" >/dev/null
-  git clone --depth=1 -b "${branch}" https://github.com/maistra/envoy.git
+  git clone --depth=1 -b "${branch}" https://github.com/dcillera/envoy.git
 
   pushd envoy >/dev/null
   SHA=$(git rev-parse HEAD)
@@ -43,7 +43,7 @@ function get_envoy_sha() {
 
 function get_envoy_sha_256() {
   pushd "${WORKDIR}" >/dev/null
-  curl -sfLO "https://github.com/maistra/envoy/archive/${SHA}.tar.gz"
+  curl -sfLO "https://github.com/dcillera/envoy/archive/${SHA}.tar.gz"
   SHA256=$(sha256sum "${SHA}.tar.gz" | awk '{print $1}')
   popd >/dev/null
 }
