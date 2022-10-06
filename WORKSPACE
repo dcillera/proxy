@@ -40,11 +40,11 @@ new_local_repository(
 #
 # Note: this is needed by release builder to resolve envoy dep sha to tag.
 # Commit date: 2022-07-29
-ENVOY_SHA = "0ace8f9088e9bdf1db8b3d4c6f27c80f9b525dde"
+ENVOY_SHA = "edaf21904ed04f310241c9feb33cdb9e8f85ebb5"
 
-ENVOY_SHA256 = "35fa29d41e413b5967ea28082946d1bc1ee9d3f49fa0ce4bc5a2630032c143a1"
+ENVOY_SHA256 = "9069bb70c42c009c522b30a2d1f8ff83d881be53e8c42d11bdd67bcfba3ee477"
 
-ENVOY_ORG = "dcillera" # "maistra"
+ENVOY_ORG = "maistra"
 
 ENVOY_REPO = "envoy"
 
@@ -71,6 +71,29 @@ envoy_api_dependencies()
 
 load("@envoy//bazel:repositories.bzl", "envoy_dependencies", "BUILD_ALL_CONTENT")
 envoy_dependencies()
+
+new_local_repository(
+    name = "emscripten_bin_linux",
+    path = "/opt/emsdk/",
+    build_file_content = BUILD_ALL_CONTENT,
+)
+
+new_local_repository(
+    name = "emscripten_npm_linux",
+    path = "/lib/node_modules/npm",
+    build_file_content = BUILD_ALL_CONTENT,
+)
+
+local_repository(
+    name = "local-toolchain",
+    path = "maistra/local",
+)
+
+#load("@build_bazel_rules_nodejs//:index.bzl", "node_repositories")
+#node_repositories(
+    #vendored_node = "@local-toolchain//:tree",
+    #vendored_yarn = "@local-toolchain//:tree/usr/share/yarn",
+#)
 
 load("@envoy//bazel:repositories_extra.bzl", "envoy_dependencies_extra")
 envoy_dependencies_extra()
@@ -110,3 +133,4 @@ container_deps()
 
 load("//bazel:wasm.bzl", "wasm_dependencies")
 wasm_dependencies()
+

@@ -676,6 +676,12 @@ def _impl(ctx):
             flags = CROSSTOOL_DEFAULT_WARNINGS,
         ),
 
+        # OSSM-1931: needed for successful compilation
+        flag_set(
+            actions = all_compile_actions,
+            flags = ['-DFLATBUFFERS_LOCALE_INDEPENDENT=0'],
+        ),
+
         # Defines and Includes and Paths and such
         flag_set(
             actions = all_compile_actions,

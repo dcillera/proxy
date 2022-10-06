@@ -19,8 +19,8 @@ proto is unused\
 COMMON_FLAGS="\
     --config=release \
     --config=${ARCH} \
+    --action_env=ZLIB_HAVE_UNISTD_H=1 \
 "
-
 if [ -n "${BAZEL_REMOTE_CACHE}" ]; then
   COMMON_FLAGS+=" --remote_cache=${BAZEL_REMOTE_CACHE} "
 elif [ -n "${BAZEL_DISK_CACHE}" ]; then

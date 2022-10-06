@@ -9,6 +9,8 @@ DIR=$(cd "$(dirname "$0")" ; pwd -P)
 # shellcheck disable=SC1091
 source "${DIR}/common.sh"
 
+bazel run local_link_to_host
+
 # Build WASM extensions first
 time bazel_build //extensions:stats.wasm
 time bazel_build //extensions:metadata_exchange.wasm

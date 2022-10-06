@@ -32,3 +32,10 @@ genrule(
     cmd = "echo $${ISTIO_VERSION:-\"0.3.0-dev\"} > \"$@\"",
     visibility = ["//visibility:public"],
 )
+
+# Shell script added for OSSM-1931
+sh_binary(
+     name = "local_link_to_host",
+     srcs = ["local_link_to_host.sh"],
+     visibility = ["//visibility:public"],
+)

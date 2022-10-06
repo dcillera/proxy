@@ -2,19 +2,6 @@
 
 package(default_visibility = ["//visibility:public"])
 
-# Doesn't have any effect
-# sh_binary(
-#     name = "local_link_to_host",
-#     srcs = ["local_link_to_host.sh"],
-# )
-
-genrule(
-    name = "local_link_rule",
-    # Dummy output file, just to make genrule happy
-    outs = ["hello.txt"],
-    cmd = "/work/maistra/vendor/emsdk/local_link_to_host.sh; echo hello world >$@",
-)
-
 
 config_setting(
     name = "linux",
@@ -48,9 +35,7 @@ config_setting(
     ],
 )
 
-filegroup(  name = "empty", 
-            srcs = ["local_link_rule"], 
-        )
+filegroup(name = "empty")
 
 
 alias(
