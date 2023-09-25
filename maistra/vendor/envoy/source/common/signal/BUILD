@@ -21,8 +21,12 @@ envoy_cc_library(
 
 envoy_cc_library(
     name = "sigaction_lib",
-    srcs = ["signal_action.cc"],
-    hdrs = ["signal_action.h"],
+    srcs = ["signal_action.cc",
+            "print_trace.cc",
+    ],
+    hdrs = ["signal_action.h",
+            "print_trace.h",
+    ],
     tags = ["backtrace"],
     deps = [
         ":fatal_error_handler_lib",

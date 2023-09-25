@@ -25,7 +25,7 @@ export WORKDIR
 # NODE_PATH: searching path for Node.js (necessary for "acorn" module)
 # WORKDIR  : working directory path passed to Bazel
 COMMON_FLAGS="\
-    --config=release \
+    --config=release-symbol \
     --config=${ARCH} \
     --action_env=EMSCRIPTEN=${EMSCRIPTEN} \
     --action_env=WORKDIR=${WORKDIR} \
@@ -49,6 +49,9 @@ if [ -n "${CI}" ]; then
   COMMON_FLAGS+=" --local_cpu_resources=${LOCAL_CPU_RESOURCES} "
   COMMON_FLAGS+=" --local_ram_resources=${LOCAL_RAM_RESOURCES} "
   COMMON_FLAGS+=" --jobs=${LOCAL_JOBS} "
+  COMMON_FLAGS+=" -c dbg "
+  COMMON_FLAGS+=" --copt=-gline-tables-only "
+  COMMON_FLAGS+=" --cxxopt=-g1 "
 fi
 
 function bazel_build() {

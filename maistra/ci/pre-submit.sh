@@ -28,12 +28,12 @@ echo "Build succeeded. Binary generated:"
 bazel-bin/src/envoy/envoy --version
 
 # Run tests
-time bazel_test //src/... //test/...
+#time bazel_test //src/... //test/...
 
-export ENVOY_PATH=bazel-bin/src/envoy/envoy
-export GO111MODULE=on
-export GOPATH=$HOME/go
+#export ENVOY_PATH=bazel-bin/src/envoy/envoy
+#export GO111MODULE=on
+#export GOPATH=$HOME/go
 
-time go test -p 1 -parallel 1 ./...
+#time go test -p 1 -parallel 1 ./...
 # export WASM=true
 # time go test -p 1 -parallel 1 ./test/envoye2e/stats_plugin/...

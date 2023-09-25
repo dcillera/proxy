@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <csignal>
 
 #include "envoy/admin/v3/config_dump.pb.h"
 #include "envoy/common/exception.h"
@@ -394,6 +395,9 @@ void InstanceImpl::initialize(Network::Address::InstanceConstSharedPtr local_add
   for (const auto& ext : Envoy::Registry::FactoryCategoryRegistry::registeredFactories()) {
     ENVOY_LOG(info, "  {}: {}", ext.first, absl::StrJoin(ext.second->registeredNames(), ", "));
   }
+
+// TEST: intentionally cause a segmentation fault
+* (int *) 0 = 17;
 
   // Handle configuration that needs to take place prior to the main configuration load.
   InstanceUtil::loadBootstrapConfig(bootstrap_, options_,

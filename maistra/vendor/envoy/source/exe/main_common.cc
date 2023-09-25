@@ -23,6 +23,9 @@
 #include "absl/debugging/symbolize.h"
 #include "absl/strings/str_split.h"
 
+#include <csignal>
+
+
 #ifdef ENVOY_HOT_RESTART
 #include "source/server/hot_restart_impl.h"
 #endif
@@ -227,18 +230,25 @@ int MainCommon::main(int argc, char** argv, PostServerHook hook) {
 #endif
   Thread::MainThread main_thread;
   std::unique_ptr<Envoy::MainCommon> main_common;
+std::cout << "Hey, I'm in main!\n";
+
+
 
   // Initialize the server's main context under a try/catch loop and simply return EXIT_FAILURE
   // as needed. Whatever code in the initialization path that fails is expected to log an error
   // message so the user can diagnose.
   TRY_ASSERT_MAIN_THREAD {
     main_common = std::make_unique<Envoy::MainCommon>(argc, argv);
+std::cout << "\n\nHey, I'm in TRY_ASSERT_MAIN_THREAD!\n\n";
+
     Envoy::Server::Instance* server = main_common->server();
+std::cout << "\n\nHey, I'm after server!\n\n";
     if (server != nullptr && hook != nullptr) {
       hook(*server);
     }
   }
   END_TRY
+
   catch (const Envoy::NoServingException& e) {
     return EXIT_SUCCESS;
   }
@@ -251,6 +261,7 @@ int MainCommon::main(int argc, char** argv, PostServerHook hook) {
     return EXIT_FAILURE;
   }
 
+std::cout << "\n\nHey, I'm after catch!\n\n";
   // Run the server listener loop outside try/catch blocks, so that unexpected exceptions
   // show up as a core-dumps for easier diagnostics.
   return main_common->run() ? EXIT_SUCCESS : EXIT_FAILURE;

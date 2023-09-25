@@ -1,5 +1,5 @@
 #include "source/common/signal/signal_action.h"
-
+#include "source/common/signal/print_trace.h"
 #include <sys/mman.h>
 
 #include <csignal>
@@ -13,6 +13,7 @@ namespace Envoy {
 constexpr int SignalAction::FATAL_SIGS[];
 
 void SignalAction::sigHandler(int sig, siginfo_t* info, void* context) {
+#if 0
   BackwardsTrace tracer;
 
   tracer.logFault(strsignal(sig), info->si_addr);
@@ -22,6 +23,11 @@ void SignalAction::sigHandler(int sig, siginfo_t* info, void* context) {
     tracer.capture();
   }
   tracer.logTrace();
+
+#else
+// dcillera: call our backtrace function
+  print_trace();
+#endif
 
   // Finally after logging the stack trace, call the crash handlers
   // in order from safe to unsafe.
