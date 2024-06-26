@@ -17,8 +17,11 @@ proto is unused\
 "
 
 COMMON_FLAGS="\
-    --config=release \
     --config=${ARCH} \
+    --cxxopt -g \
+    --copt -g \
+    -c dbg \
+    --subcommands \
 "
 
 if [ -n "${BAZEL_REMOTE_CACHE}" ]; then
@@ -38,6 +41,7 @@ if [ -n "${CI}" ]; then
   COMMON_FLAGS+=" --local_cpu_resources=${LOCAL_CPU_RESOURCES} "
   COMMON_FLAGS+=" --local_ram_resources=${LOCAL_RAM_RESOURCES} "
   COMMON_FLAGS+=" --jobs=${LOCAL_JOBS} "
+  COMMON_FLAGS+=" --subcommands "
 fi
 
 function bazel_build() {

@@ -40,11 +40,17 @@ ENVOY_REPO = "envoy-openssl"
 
 # To override with local envoy, just pass `--override_repository=envoy=/PATH/TO/ENVOY` to Bazel or
 # persist the option in `user.bazelrc`.
-http_archive(
+# http_archive(
+#     name = "envoy",
+#     sha256 = ENVOY_SHA256,
+#     strip_prefix = ENVOY_REPO + "-" + ENVOY_SHA,
+#     url = "https://github.com/" + ENVOY_ORG + "/" + ENVOY_REPO + "/archive/" + ENVOY_SHA + ".tar.gz",
+# )
+
+local_repository(
     name = "envoy",
-    sha256 = ENVOY_SHA256,
-    strip_prefix = ENVOY_REPO + "-" + ENVOY_SHA,
-    url = "https://github.com/" + ENVOY_ORG + "/" + ENVOY_REPO + "/archive/" + ENVOY_SHA + ".tar.gz",
+    # Relative paths are also supported.
+    path = "/work/envoy",
 )
 
 load("@envoy//bazel:api_binding.bzl", "envoy_api_binding")
@@ -59,10 +65,10 @@ envoy_api_binding()
 
 load("@envoy//bazel:api_repositories.bzl", "envoy_api_dependencies")
 
-# local_repository(
-#     name = "bssl-compat",
-#     path = "/work/envoy/bssl-compat",
-# )
+local_repository(
+    name = "bssl-compat",
+    path = "/work/envoy/bssl-compat",
+)
 
 envoy_api_dependencies()
 

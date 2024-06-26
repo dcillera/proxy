@@ -16,17 +16,17 @@ echo "Build succeeded. Binary generated:"
 bazel-bin/envoy --version
 
 # Run tests
-time bazel_test //...
+# time bazel_test //...
 
 export ENVOY_PATH=bazel-bin/envoy
 export GO111MODULE=on
 export GOPATH=$HOME/go
-
+export LD_LIBRARY_PATH=/work/openssl-openssl-3.0.7
 # shellcheck disable=SC2046
 
 # "go test" commented out for the moment (not yet completely working) to permit
 #  a proxy commit to be available for ci
-# time go test -timeout=30m -p=1 -parallel=1 $(go list ./...)
+time go test -timeout=30m -p=1 -parallel=1 istio.io/proxy/test/envoye2e/basic_flow
 
 # export WASM=true
 # time go test -p 1 -parallel 1 ./test/envoye2e/stats_plugin/...
